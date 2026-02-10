@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { BusinessCard } from "../types";
+import { SETTINGS_STORAGE_KEY } from "../components/SettingsModal";
 
 const CARD_SCHEMA = {
   type: Type.OBJECT,
@@ -48,11 +49,23 @@ export const extractCardData = async (base64Image: string): Promise<BusinessCard
     }
 
     const apiKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
-    if (!apiKey) {
-      throw new Error("Missing VITE_GEMINI_API_KEY. Set it in .env.local, or enable the backend proxy.");
+    let storedKey = "";
+    if (typeof window !== "undefined") {
+      try {
+        storedKey = (window.localStorage.getItem(SETTINGS_STORAGE_KEY) || "").trim();
+      } catch {
+        // ignore
+      }
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const finalKey = storedKey || apiKey;
+    if (!finalKey) {
+      throw new Error(
+        "Missing Gemini API key. Set VITE_GEMINI_API_KEY in .env.local, enable the backend proxy, or paste a key in Settings.",
+      );
+    }
+
+    const ai = new GoogleGenAI({ apiKey: finalKey });
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {

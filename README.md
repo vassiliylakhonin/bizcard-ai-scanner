@@ -55,6 +55,10 @@ Upload photos or a short video of business cards, extract contact details with G
    ```
 6. Open http://localhost:3000
 
+## Demo (No Key In Repo)
+
+If you host this app publicly (or just want a quick try), you can paste your own Gemini API key in the in-app **Settings** modal. The key is stored in your browser localStorage on that device.
+
 ## Build
 
 ```bash

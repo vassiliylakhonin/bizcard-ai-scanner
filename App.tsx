@@ -5,6 +5,8 @@ import { ResultsTable } from './components/ResultsTable';
 import { AppStep, ProcessedFrame } from './types';
 import { extractCardData } from './services/geminiService';
 import { Loader2 } from 'lucide-react';
+import { Settings } from 'lucide-react';
+import { SettingsModal } from './components/SettingsModal';
 
 const BATCH_SIZE = 3; // Number of concurrent requests
 
@@ -13,6 +15,7 @@ export default function App() {
   const [frames, setFrames] = useState<ProcessedFrame[]>([]);
   const [processedCount, setProcessedCount] = useState(0);
   const selectedCount = frames.filter((f) => f.isSelected).length;
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleFramesExtracted = (extractedFrames: ProcessedFrame[]) => {
     setFrames(extractedFrames);
@@ -68,6 +71,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -76,11 +80,21 @@ export default function App() {
             </div>
             <h1 className="text-xl font-bold text-slate-900">BizCard Scanner</h1>
           </div>
-          <div className="text-sm text-slate-500">
-            {step === AppStep.UPLOAD && "Step 1: Upload Media"}
-            {step === AppStep.FRAME_SELECTION && "Step 2: Select Items"}
-            {step === AppStep.PROCESSING && "Step 3: AI Analysis"}
-            {step === AppStep.RESULTS && "Step 4: Export"}
+          <div className="flex items-center space-x-3">
+            <div className="text-sm text-slate-500 hidden sm:block">
+              {step === AppStep.UPLOAD && "Step 1: Upload Media"}
+              {step === AppStep.FRAME_SELECTION && "Step 2: Select Items"}
+              {step === AppStep.PROCESSING && "Step 3: AI Analysis"}
+              {step === AppStep.RESULTS && "Step 4: Export"}
+            </div>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="inline-flex items-center px-3 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              title="Settings"
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              <span className="text-sm font-medium">Settings</span>
+            </button>
           </div>
         </div>
       </header>

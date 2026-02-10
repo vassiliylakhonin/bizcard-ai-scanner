@@ -13,16 +13,16 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({ onFramesExtracted 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const readFileAsBase64 = (file: File): Promise<string> => {
+  const readFileAsBase64 = useCallback((file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => resolve(e.target?.result as string);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
-  };
+  }, []);
 
-  const processVideo = async (file: File) => {
+  const processVideo = useCallback(async (file: File) => {
     setIsProcessing(true);
     setProgress(0);
     try {
@@ -43,9 +43,9 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({ onFramesExtracted 
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [onFramesExtracted]);
 
-  const processPhotos = async (files: File[]) => {
+  const processPhotos = useCallback(async (files: File[]) => {
     setIsProcessing(true);
     setProgress(0);
     try {
@@ -74,7 +74,7 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({ onFramesExtracted 
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [onFramesExtracted, readFileAsBase64]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -95,7 +95,7 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({ onFramesExtracted 
     } else {
       alert("Please upload video or image files.");
     }
-  }, []);
+  }, [processPhotos, processVideo]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

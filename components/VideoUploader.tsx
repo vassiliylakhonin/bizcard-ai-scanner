@@ -12,7 +12,7 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({ onFramesExtracted 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const processVideo = async (file: File) => {
+  const processVideo = useCallback(async (file: File) => {
     setIsProcessing(true);
     setProgress(0);
     try {
@@ -36,7 +36,7 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({ onFramesExtracted 
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [onFramesExtracted]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -47,7 +47,7 @@ export const VideoUploader: React.FC<VideoUploaderProps> = ({ onFramesExtracted 
     } else {
       alert("Please upload a video file.");
     }
-  }, []);
+  }, [processVideo]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

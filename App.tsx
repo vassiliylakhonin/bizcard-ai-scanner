@@ -12,6 +12,7 @@ export default function App() {
   const [step, setStep] = useState<AppStep>(AppStep.UPLOAD);
   const [frames, setFrames] = useState<ProcessedFrame[]>([]);
   const [processedCount, setProcessedCount] = useState(0);
+  const selectedCount = frames.filter((f) => f.isSelected).length;
 
   const handleFramesExtracted = (extractedFrames: ProcessedFrame[]) => {
     setFrames(extractedFrames);
@@ -25,7 +26,6 @@ export default function App() {
   const processBatch = async (itemsToProcess: ProcessedFrame[]) => {
     // A simple semaphore/batch queue implementation
     const queue = [...itemsToProcess];
-    let completed = 0;
     
     const worker = async () => {
       while (queue.length > 0) {
@@ -38,10 +38,10 @@ export default function App() {
         try {
           const data = await extractCardData(frame.imageUrl);
           setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'completed', data } : f));
-        } catch (e) {
+        } catch (err) {
+          console.error("Frame processing error:", err);
           setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'error' } : f));
         } finally {
-          completed++;
           setProcessedCount(c => c + 1);
         }
       }
@@ -122,12 +122,12 @@ export default function App() {
             <div className="w-full bg-slate-100 rounded-full h-4 mb-2 overflow-hidden">
               <div 
                 className="bg-blue-600 h-full transition-all duration-300 ease-out"
-                style={{ width: `${(processedCount / frames.filter(f => f.isSelected).length) * 100}%` }}
+                style={{ width: `${selectedCount === 0 ? 0 : (processedCount / selectedCount) * 100}%` }}
               ></div>
             </div>
             <div className="flex justify-between text-sm text-slate-500 font-medium">
               <span>Processed</span>
-              <span>{processedCount} / {frames.filter(f => f.isSelected).length}</span>
+              <span>{processedCount} / {selectedCount}</span>
             </div>
           </div>
         )}

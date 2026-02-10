@@ -3,7 +3,7 @@
 ![CI](https://github.com/vassiliylakhonin/bizcard-ai-scanner/actions/workflows/ci.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-Upload photos or a short video of business cards, extract contact details with Google Gemini, then export everything to an Excel file.
+Upload photos or a short video of business cards, extract contact details with Gemini (optional) or fully on-device OCR (no uploads), then export everything to Excel/CSV/vCard.
 
 ## Features
 
@@ -12,14 +12,20 @@ Upload photos or a short video of business cards, extract contact details with G
 - Structured extraction (name, title, company, email, phone, website, address)
 - On-device OCR mode (no image uploads)
 - Batch processing with concurrency
+- Review + edit extracted contacts in a table
+- Dedupe toggle + basic merge strategy
+- Basic validation highlighting (email/phone/URL)
 - Export results to `.xlsx`, `.csv`, `.vcf` (vCard)
 
 ## Tech Stack
 
 - React + TypeScript
 - Vite
+- Tailwind CSS (local build)
+- Tesseract.js (on-device OCR mode)
 - Google Gemini via `@google/genai`
 - `xlsx` for Excel export
+- Optional Node backend proxy (to keep API keys server-side)
 
 ## Run Locally
 
@@ -33,7 +39,7 @@ Upload photos or a short video of business cards, extract contact details with G
    - AI (Gemini)
    - On-device OCR (no uploads)
 
-3. Create `.env.local`:
+3. (Optional, AI/proxy modes) Create `.env.local`:
    ```bash
    # AI (Gemini) local-only mode (not recommended for public deployments)
    VITE_GEMINI_API_KEY=YOUR_GEMINI_API_KEY
@@ -50,7 +56,7 @@ Upload photos or a short video of business cards, extract contact details with G
    ```bash
    npm run dev
    ```
-6. Open http://localhost:3000
+6. Open the URL printed by Vite (usually http://localhost:5173)
 
 ## Demo (No Key In Repo)
 
@@ -86,6 +92,12 @@ npm run preview
 ## Security / Privacy
 
 Business cards contain PII (names, emails, phone numbers).
+
+Data flow depends on the processing mode:
+- **On-device OCR:** images stay on the device (no uploads).
+- **AI (Gemini):** selected images are sent to Gemini (either directly from the browser if you use a client-side key, or via the optional backend proxy).
+
+This app does not persist uploaded images or extracted results to a server you control by default: they stay in the browser (in-memory for the current session). The app does store **settings** (processing mode, OCR language, and optional API key) in `localStorage` on that device.
 
 This is a client-side app. If you deploy it publicly with an API key bundled, the key can be extracted from the built assets.
 

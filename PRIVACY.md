@@ -33,6 +33,8 @@ Notes:
 By default, this app:
 - does not store business card images or extracted results on a server
 - keeps uploaded images and extracted results in memory (the current browser session)
+- stores app settings (processing mode, OCR language, and optional API key) in browser `localStorage` on that device
+- may cache OCR engine assets (worker/core/languages) in the browser for faster subsequent runs
 
 If you add a backend, make sure you:
 - do not log request bodies

@@ -1,0 +1,5 @@
+{
+  "name": "BizCard AI Scanner",
+  "description": "Extract contact data from video or photos of business cards into Excel using Gemini Flash.",
+  "requestFramePermissions": []
+}

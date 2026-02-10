@@ -102,7 +102,15 @@ On-device OCR mode uses Tesseract.js and self-hosted worker/core/language assets
 
 ## Roadmap
 
-- Better validation and normalization for phone/email/URLs
-- Auto-dedupe improvements and conflict resolution UI
-- More export formats (Google Contacts CSV template, CRM-specific exports)
-- Optional server deployment recipe (Vercel/Cloudflare/Netlify)
+Shipped:
+- Export formats: Excel, CSV, vCard
+- Dedupe toggle + basic merge strategy
+- Basic validation highlighting in the results table
+- On-device OCR mode (no uploads)
+- Minimal backend proxy option (server-side API key)
+
+Next:
+- Stronger validation + normalization for phone/email/URLs (and “fix suggestions” UI)
+- Better dedupe (fuzzy matching) + conflict resolution UI
+- More export templates (Google Contacts CSV, HubSpot/Salesforce-friendly CSV)
+- Deployment recipes for the backend proxy (Vercel/Cloudflare/Netlify) with rate limiting and auth

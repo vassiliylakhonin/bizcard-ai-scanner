@@ -7,12 +7,22 @@ type WorkerLike = {
 
 type CreateWorkerOptions = {
   logger?: (m: unknown) => void;
+  workerPath?: string;
+  langPath?: string;
+  corePath?: string;
+  gzip?: boolean;
 };
 
 type CreateWorkerFn = (langs: string, oem?: number, options?: CreateWorkerOptions) => Promise<WorkerLike>;
 
 let workerPromise: Promise<WorkerLike> | null = null;
 let workerLangs: string | null = null;
+
+function assetPath(path: string) {
+  const base = import.meta.env.BASE_URL || "/";
+  // base ends with '/' in Vite; path should not start with '/'.
+  return `${base}${path}`;
+}
 
 async function getWorker(langs: string, onProgress?: (progress: number, status?: string) => void) {
   if (workerPromise && workerLangs === langs) return workerPromise;
@@ -36,6 +46,11 @@ async function getWorker(langs: string, onProgress?: (progress: number, status?:
     const createWorker = mod.createWorker as unknown as CreateWorkerFn;
 
     const worker = await createWorker(langs, 1, {
+      // Self-hosted assets (same-origin) to avoid third-party CDNs.
+      workerPath: assetPath("tesseract/worker.min.js"),
+      corePath: assetPath("tesseract-core").replace(/\/$/, ""),
+      langPath: assetPath("tessdata").replace(/\/$/, ""),
+      gzip: true,
       logger: (m: unknown) => {
         if (!onProgress) return;
         if (typeof m !== "object" || m === null) return;
@@ -147,4 +162,3 @@ export async function extractCardDataOnDeviceOcr(
     ...parsed,
   };
 }
-

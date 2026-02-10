@@ -148,7 +148,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                   <option value="eng+rus">English + Russian</option>
                 </select>
                 <div className="text-xs text-slate-500">
-                  On first use, the OCR engine may download language data to your browser cache.
+                  On first use, the OCR engine may download language/model assets from this site to your browser cache.
                 </div>
               </div>
             )}

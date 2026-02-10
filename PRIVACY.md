@@ -25,7 +25,8 @@ When "On-device OCR" mode is enabled, business card images are processed locally
 
 Notes:
 - Card images are not uploaded to an AI service.
-- The OCR engine may download language/model assets on first use, and cache them in the browser for faster subsequent runs.
+- The OCR engine may download language/model assets on first use from the same origin (this app), and cache them in the browser for faster subsequent runs.
+  - Self-hosting these assets avoids third-party CDNs, but increases initial download size (tens of MB).
 
 ## Data Retention
 
@@ -41,4 +42,3 @@ If you add a backend, make sure you:
 ## User Responsibility
 
 Make sure you have permission to process and store the contact information you scan (e.g., consent and local laws).
-

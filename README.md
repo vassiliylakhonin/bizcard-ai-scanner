@@ -97,6 +97,8 @@ If you plan to deploy this publicly, move Gemini calls to a backend (proxy) and 
 
 See `PRIVACY.md` for details and tradeoffs.
 
+On-device OCR mode uses Tesseract.js and self-hosted worker/core/language assets (same origin, no third-party CDNs). First use may download ~60MB of OCR assets and cache them in the browser.
+
 ## Dependency Notes
 
 - `npm audit` currently reports a high severity advisory for `xlsx` with no fix available.

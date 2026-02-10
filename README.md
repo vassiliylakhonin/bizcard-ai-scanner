@@ -2,19 +2,69 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# BizCard AI Scanner
 
-This contains everything you need to run your app locally.
+Upload photos or a short video of business cards, extract contact details with Google Gemini, then export everything to an Excel file.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1ncvCimyZomB4wrSrCJnwu3YAE7KDARf9
+## Features
+
+- Upload multiple images or a video
+- Video frame extraction and manual frame selection
+- Structured extraction (name, title, company, email, phone, website, address)
+- Batch processing with concurrency
+- Export results to `.xlsx`
+
+## Tech Stack
+
+- React + TypeScript
+- Vite
+- Google Gemini via `@google/genai`
+- `xlsx` for Excel export
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js (recommended: 18+)
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+   ```bash
+   npm install
+   ```
+2. Create `.env.local`:
+   ```bash
+   GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+   ```
 3. Run the app:
-   `npm run dev`
+   ```bash
+   npm run dev
+   ```
+4. Open http://localhost:3000
+
+## Build
+
+```bash
+npm run build
+npm run preview
+```
+
+## How It Works (High Level)
+
+1. You upload photos or a video.
+2. For videos, the app extracts JPEG frames in the browser.
+3. Selected frames/images are sent to Gemini with a JSON schema, returning structured contact fields.
+4. Results are shown in a table and can be exported to Excel.
+
+## Configuration Notes
+
+- The app reads `GEMINI_API_KEY` from `.env.local` and injects it at build time (see `vite.config.ts`).
+- `.env.local` is ignored by Git by default (via `*.local` in `.gitignore`).
+
+## Security / Privacy
+
+This is a client-side app. If you deploy it publicly with an API key bundled, the key can be extracted from the built assets.
+
+If you plan to deploy this publicly, move Gemini calls to a backend (proxy) and keep the key server-side.
+
+## AI Studio Link (Optional)
+
+If you started from an AI Studio template, you may have a saved app link:
+- https://ai.studio/apps/drive/1ncvCimyZomB4wrSrCJnwu3YAE7KDARf9

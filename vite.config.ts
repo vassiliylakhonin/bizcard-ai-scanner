@@ -2,8 +2,13 @@ import path from 'path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
+  // GitHub Pages serves project sites at https://<user>.github.io/<repo>/.
+  // We set base only for the Pages build so local dev and other builds keep '/'.
+  const isPagesBuild = command === 'build' && process.env.GITHUB_PAGES === 'true';
+
   return {
+    base: isPagesBuild ? '/bizcard-ai-scanner/' : '/',
     server: {
       port: 3000,
       host: '0.0.0.0',

@@ -59,6 +59,12 @@ Upload photos or a short video of business cards, extract contact details with G
 
 If you host this app publicly (or just want a quick try), you can paste your own Gemini API key in the in-app **Settings** modal. The key is stored in your browser localStorage on that device.
 
+## Live Demo
+
+This repo is set up to deploy to GitHub Pages. Once enabled, the URL will be:
+
+https://vassiliylakhonin.github.io/bizcard-ai-scanner/
+
 ## Build
 
 ```bash

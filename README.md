@@ -63,8 +63,3 @@ npm run preview
 This is a client-side app. If you deploy it publicly with an API key bundled, the key can be extracted from the built assets.
 
 If you plan to deploy this publicly, move Gemini calls to a backend (proxy) and keep the key server-side.
-
-## AI Studio Link (Optional)
-
-If you started from an AI Studio template, you may have a saved app link:
-- https://ai.studio/apps/drive/1ncvCimyZomB4wrSrCJnwu3YAE7KDARf9

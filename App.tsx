@@ -19,6 +19,7 @@ export default function App() {
   const selectedCount = frames.filter((f) => f.isSelected).length;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [processingMode, setProcessingMode] = useState<ProcessingMode>(() => getStoredProcessingMode());
+  const isAiMode = processingMode === "ai";
 
   const handleFramesExtracted = (extractedFrames: ProcessedFrame[]) => {
     setFrames(extractedFrames);
@@ -83,16 +84,16 @@ export default function App() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">
-              AI
+            <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white font-bold">
+              PF
             </div>
-            <h1 className="text-xl font-bold text-slate-900">BizCard Scanner</h1>
+            <h1 className="text-xl font-bold text-slate-900">Privacy-First Card Scanner</h1>
           </div>
           <div className="flex items-center space-x-3">
             <div className="text-sm text-slate-500 hidden sm:block">
               {step === AppStep.UPLOAD && "Step 1: Upload Media"}
               {step === AppStep.FRAME_SELECTION && "Step 2: Select Items"}
-              {step === AppStep.PROCESSING && "Step 3: AI Analysis"}
+              {step === AppStep.PROCESSING && `Step 3: ${isAiMode ? "AI Extraction" : "OCR Extraction"}`}
               {step === AppStep.RESULTS && "Step 4: Export"}
             </div>
             <button
@@ -115,7 +116,7 @@ export default function App() {
                 Digitize Your Business Cards
               </h1>
               <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-                Upload a video or photos of your business cards. Our AI will automatically extract contacts and prepare an Excel file.
+                Upload a video or photos of your business cards. Extract contacts with Gemini (optional) or run fully on-device OCR (no uploads), then export to Excel/CSV/vCard.
               </p>
             </div>
             <PrivacyNotice mode={processingMode} onOpenSettings={() => setSettingsOpen(true)} />
@@ -139,7 +140,9 @@ export default function App() {
             </div>
             <h2 className="text-2xl font-bold text-slate-900 mb-2">Processing Images</h2>
             <p className="text-slate-500 mb-6">
-              AI is analyzing your business cards. This may take a moment.
+              {isAiMode
+                ? "Gemini is extracting contact details from your selected cards. This may take a moment."
+                : "On-device OCR is extracting contact details from your selected cards. This may take a moment."}
             </p>
             
             <div className="w-full bg-slate-100 rounded-full h-4 mb-2 overflow-hidden">
@@ -162,7 +165,7 @@ export default function App() {
 
       <footer className="bg-white border-t border-slate-200 py-6 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-slate-400 text-sm">
-          Powered by Google Gemini 3 Flash & React
+          Gemini (optional), Tesseract.js (optional) & React
         </div>
       </footer>
     </div>

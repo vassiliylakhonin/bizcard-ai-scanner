@@ -1,5 +1,5 @@
 {
-  "name": "BizCard AI Scanner",
-  "description": "Extract contact data from video or photos of business cards into Excel using Gemini Flash.",
+  "name": "Privacy-First Business Card Scanner",
+  "description": "Extract structured contacts from photos/videos using Gemini (optional) or on-device OCR, then export to Excel/CSV/vCard.",
   "requestFramePermissions": []
 }

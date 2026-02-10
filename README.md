@@ -1,4 +1,4 @@
-# BizCard AI Scanner
+# Privacy-First Business Card Scanner
 
 ![CI](https://github.com/vassiliylakhonin/bizcard-ai-scanner/actions/workflows/ci.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)

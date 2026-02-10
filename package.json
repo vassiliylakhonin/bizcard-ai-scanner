@@ -3,8 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "description": "AI-powered business card scanner: extract structured contacts from photos/videos and export to Excel/CSV/vCard.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vassiliylakhonin/bizcard-ai-scanner.git"
+  },
   "scripts": {
     "dev": "vite",
+    "dev:server": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",

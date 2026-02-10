@@ -7,6 +7,8 @@ import { extractCardData } from './services/geminiService';
 import { Loader2 } from 'lucide-react';
 import { Settings } from 'lucide-react';
 import { SettingsModal } from './components/SettingsModal';
+import { PrivacyNotice } from './components/PrivacyNotice';
+import { getStoredProcessingMode, ProcessingMode } from './utils/settings';
 
 const BATCH_SIZE = 3; // Number of concurrent requests
 
@@ -16,6 +18,7 @@ export default function App() {
   const [processedCount, setProcessedCount] = useState(0);
   const selectedCount = frames.filter((f) => f.isSelected).length;
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [processingMode, setProcessingMode] = useState<ProcessingMode>(() => getStoredProcessingMode());
 
   const handleFramesExtracted = (extractedFrames: ProcessedFrame[]) => {
     setFrames(extractedFrames);
@@ -29,6 +32,7 @@ export default function App() {
   const processBatch = async (itemsToProcess: ProcessedFrame[]) => {
     // A simple semaphore/batch queue implementation
     const queue = [...itemsToProcess];
+    const batchSize = processingMode === "on_device_ocr" ? 1 : BATCH_SIZE;
     
     const worker = async () => {
       while (queue.length > 0) {
@@ -51,7 +55,7 @@ export default function App() {
     };
 
     // Start workers
-    const workers = Array(BATCH_SIZE).fill(null).map(() => worker());
+    const workers = Array(batchSize).fill(null).map(() => worker());
     await Promise.all(workers);
   };
 
@@ -71,7 +75,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={() => setProcessingMode(getStoredProcessingMode())}
+      />
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -110,6 +118,7 @@ export default function App() {
                 Upload a video or photos of your business cards. Our AI will automatically extract contacts and prepare an Excel file.
               </p>
             </div>
+            <PrivacyNotice mode={processingMode} onOpenSettings={() => setSettingsOpen(true)} />
             <MediaUploader onFramesExtracted={handleFramesExtracted} />
           </div>
         )}

@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { BusinessCard } from "../types";
-import { SETTINGS_STORAGE_KEY } from "../components/SettingsModal";
+import { getStoredGeminiApiKey, getStoredOcrLangs, getStoredProcessingMode } from "../utils/settings";
+import { extractCardDataOnDeviceOcr } from "./onDeviceOcrService";
 
 const CARD_SCHEMA = {
   type: Type.OBJECT,
@@ -17,8 +18,14 @@ const CARD_SCHEMA = {
 };
 
 export const extractCardData = async (base64Image: string): Promise<BusinessCard> => {
+  const mode = getStoredProcessingMode();
+  if (mode === "on_device_ocr") {
+    const langs = getStoredOcrLangs();
+    return await extractCardDataOnDeviceOcr(base64Image, langs);
+  }
+
   // Remove header if present (e.g., "data:image/jpeg;base64,")
-  const cleanBase64 = base64Image.split(',')[1] || base64Image;
+  const cleanBase64 = base64Image.split(",")[1] || base64Image;
 
   try {
     const useBackend = (import.meta.env.VITE_USE_BACKEND || "").toLowerCase() === "true";
@@ -49,14 +56,7 @@ export const extractCardData = async (base64Image: string): Promise<BusinessCard
     }
 
     const apiKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
-    let storedKey = "";
-    if (typeof window !== "undefined") {
-      try {
-        storedKey = (window.localStorage.getItem(SETTINGS_STORAGE_KEY) || "").trim();
-      } catch {
-        // ignore
-      }
-    }
+    const storedKey = getStoredGeminiApiKey();
 
     const finalKey = storedKey || apiKey;
     if (!finalKey) {

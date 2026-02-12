@@ -1,48 +1,49 @@
 # Privacy & PII
 
-Business cards often contain personally identifiable information (PII), such as:
-- full name
-- company
-- email address
-- phone number
-- physical address
+Business cards often contain personally identifiable information (PII): names, company details, emails, phone numbers, and addresses.
 
-This project supports multiple processing modes so you can control where data goes.
+This app provides multiple processing modes so users can choose the privacy/quality tradeoff.
 
 ## Processing Modes
 
-### 1) AI (Configurable Provider)
+## 1) AI Mode (Configurable Provider)
 
-When AI mode is enabled, selected images are sent to:
-- your configured provider directly from the browser (Gemini/OpenAI/Anthropic/OpenAI-compatible), or
-- your backend proxy (recommended for production deployments)
+When AI mode is enabled, selected card images are sent to your configured AI provider:
 
-Note: the included backend proxy in this repo currently supports Gemini.
+- Gemini
+- OpenAI
+- Anthropic
+- OpenAI-compatible endpoint
 
-If you deploy this app publicly, do not ship real API keys to the browser. Use a backend proxy and keep secrets server-side.
+Or, if configured, requests can go through the backend proxy.
 
-### 2) On-device OCR (No Uploads)
+Note: the backend proxy included in this repository currently supports Gemini extraction.
 
-When "On-device OCR" mode is enabled, business card images are processed locally in the user's browser using Tesseract.js.
+## 2) On-device OCR Mode
 
-Notes:
-- Card images are not uploaded to an AI service.
-- The OCR engine may download language/model assets on first use from the same origin (this app), and cache them in the browser for faster subsequent runs.
-  - Self-hosting these assets avoids third-party CDNs, but increases initial download size (tens of MB).
+When On-device OCR is enabled, images are processed locally in the browser with Tesseract.js.
+
+- Card images are not uploaded to an AI provider in this mode.
+- OCR language assets are loaded from this app origin and cached in the browser.
 
 ## Data Retention
 
 By default, this app:
-- does not store business card images or extracted results on a server
-- keeps uploaded images and extracted results in memory (the current browser session)
-- stores app settings (processing mode, OCR language, and optional API key) in browser `localStorage` on that device
-- may cache OCR engine assets (worker/core/languages) in the browser for faster subsequent runs
 
-If you add a backend, make sure you:
-- do not log request bodies
-- apply rate limiting and authentication
-- define and document retention (ideally: process in memory only)
+- does not store uploaded images or extracted contacts on an app-controlled server
+- keeps uploaded images/results in memory for the current browser session
+- stores user settings in `localStorage` (mode/provider/key/model/base URL/OCR language)
+- may cache OCR assets in browser cache for faster subsequent runs
+
+## Security Guidance
+
+For public/production deployments:
+
+- do not ship real provider keys in client bundles
+- prefer backend proxying with auth and rate limiting
+- avoid logging request bodies containing card data
+- define/document retention policy (prefer in-memory processing only)
 
 ## User Responsibility
 
-Make sure you have permission to process and store the contact information you scan (e.g., consent and local laws).
+Ensure you have permission to process/store scanned contact data and comply with applicable laws and internal policies.

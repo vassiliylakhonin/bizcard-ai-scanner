@@ -1,5 +1,5 @@
 {
   "name": "Privacy-First Business Card Scanner",
-  "description": "Extract structured contacts from photos/videos using Gemini (optional) or on-device OCR, then export to Excel/CSV/vCard.",
+  "description": "Extract structured contacts from photos/videos using configurable AI providers or on-device OCR, then export to Excel/CSV/vCard.",
   "requestFramePermissions": []
 }

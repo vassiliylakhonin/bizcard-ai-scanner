@@ -3,131 +3,154 @@
 ![CI](https://github.com/vassiliylakhonin/bizcard-ai-scanner/actions/workflows/ci.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-Upload photos or a short video of business cards, extract contact details with configurable AI providers (Gemini/OpenAI/Anthropic/OpenAI-compatible) or fully on-device OCR (no uploads), then export everything to Excel/CSV/vCard.
+Scan business cards from photos or video frames, extract structured contacts, review/edit results, and export to Excel/CSV/vCard.
 
-## Features
+## Live Demo
 
-- Upload multiple images or a video
-- Video frame extraction and manual frame selection
-- Structured extraction (name, title, company, email, phone, website, address)
-- Configurable AI provider (Gemini, OpenAI, Anthropic, OpenAI-compatible)
-- On-device OCR mode (no image uploads)
-- Batch processing with concurrency
-- Review + edit extracted contacts in a table
+[https://vassiliylakhonin.github.io/bizcard-ai-scanner/](https://vassiliylakhonin.github.io/bizcard-ai-scanner/)
+
+## About
+
+This project is a privacy-focused contact extraction app with two processing paths:
+
+- `On-device OCR`: images stay in the browser and are processed with Tesseract.js.
+- `AI mode`: use your preferred provider (`Gemini`, `OpenAI`, `Anthropic`, or `OpenAI-compatible`) to improve extraction quality.
+
+## Core Features
+
+- Upload multiple photos (default flow) or a short video
+- Video frame extraction + manual frame selection
+- Structured extraction to: `name`, `company`, `title`, `email`, `phone`, `website`, `address`
+- Configurable AI provider in Settings
+- On-device OCR mode (no card-image uploads)
+- Review/edit table before export
 - Dedupe toggle + basic merge strategy
-- Basic validation highlighting (email/phone/URL)
-- Export results to `.xlsx`, `.csv`, `.vcf` (vCard)
+- Validation highlighting for email/phone/URL
+- Export to `.xlsx`, `.csv`, `.vcf`
+- Sequential export IDs (`1, 2, 3...`) instead of random UUIDs
 
 ## Tech Stack
 
 - React + TypeScript
-- Vite
-- Tailwind CSS (local build)
-- Tesseract.js (on-device OCR mode)
-- Google Gemini via `@google/genai` + provider-agnostic HTTP integrations
+- Vite + Tailwind CSS (local build)
+- Tesseract.js (on-device OCR)
+- `@google/genai` (Gemini SDK)
+- Provider-agnostic HTTP integrations for OpenAI/Anthropic/OpenAI-compatible APIs
 - `xlsx` for Excel export
-- Optional Node backend proxy (to keep API keys server-side)
+- Optional Node backend proxy (`server/index.js`)
 
-## Run Locally
+## Quick Start
 
-**Prerequisites:** Node.js (recommended: 18+)
-
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Choose a processing mode in the in-app **Settings**:
-   - AI (provider selectable in Settings)
-   - On-device OCR (no uploads)
-
-3. (Optional, AI/proxy modes) Create `.env.local`:
-   ```bash
-   # AI keys (local-only mode, not recommended for public deployments)
-   VITE_GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-   VITE_OPENAI_API_KEY=YOUR_OPENAI_API_KEY
-   VITE_ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY
-   VITE_OPENAI_COMPAT_API_KEY=YOUR_COMPAT_KEY
-   VITE_OPENAI_COMPAT_BASE_URL=https://api.example.com/v1
-
-   # Backend proxy mode (recommended for Gemini in this repo)
-   VITE_USE_BACKEND=true
-   GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-   ```
-4. (Optional, backend proxy mode) Start the backend proxy:
-   ```bash
-   npm run dev:server
-   ```
-5. Run the app:
-   ```bash
-   npm run dev
-   ```
-6. Open the URL printed by Vite (usually http://localhost:5173)
-
-## Demo (No Key In Repo)
-
-If you host this app publicly (or just want a quick try), you can paste your own provider API key in the in-app **Settings** modal. The key is stored in your browser localStorage on that device.
-
-## Live Demo
-
-This repo is set up to deploy to GitHub Pages. Once enabled, the URL will be:
-
-https://vassiliylakhonin.github.io/bizcard-ai-scanner/
-
-## Build
+Prerequisite: Node.js 18+
 
 ```bash
-npm run build
-npm run preview
+npm install
+npm run dev
 ```
 
-## How It Works (High Level)
+Open the URL shown by Vite (usually `http://localhost:5173`).
 
-1. You upload photos or a video.
-2. For videos, the app extracts JPEG frames in the browser.
-3. Selected frames/images are processed with either:
-   - your selected AI provider (AI mode), or
-   - on-device OCR (no uploads)
-4. Results are shown in a table and can be exported to Excel.
+In the app, open `Settings` and choose:
 
-## Configuration Notes
+- `AI` mode (provider configurable), or
+- `On-device OCR` mode.
 
-- `.env.local` is ignored by Git by default (via `*.local` and `.env*` in `.gitignore`).
-- For backend proxy mode in this repo, set `GEMINI_API_KEY` for `server/index.js` (you can also put it in `.env.local` locally).
+## Configuration
 
-## Security / Privacy
+### Option A: In-app settings (fastest)
 
-Business cards contain PII (names, emails, phone numbers).
+Set provider, model, base URL (if needed), and API key in `Settings`.
 
-Data flow depends on the processing mode:
-- **On-device OCR:** images stay on the device (no uploads).
-- **AI mode:** selected images are sent to your configured AI provider. The included backend proxy currently supports Gemini.
+Stored locally in browser `localStorage` on that device.
 
-This app does not persist uploaded images or extracted results to a server you control by default: they stay in the browser (in-memory for the current session). The app does store **settings** (processing mode, OCR language, and optional API key) in `localStorage` on that device.
+### Option B: `.env.local`
 
-This is a client-side app. If you deploy it publicly with an API key bundled, the key can be extracted from the built assets.
+```bash
+# Provider keys
+VITE_GEMINI_API_KEY=
+VITE_OPENAI_API_KEY=
+VITE_ANTHROPIC_API_KEY=
+VITE_OPENAI_COMPAT_API_KEY=
+VITE_OPENAI_COMPAT_BASE_URL=https://api.example.com/v1
 
-If you plan to deploy this publicly, move provider calls to a backend (proxy) and keep keys server-side.
+# Optional provider model/base overrides
+VITE_GEMINI_MODEL=
+VITE_OPENAI_MODEL=
+VITE_OPENAI_BASE_URL=
+VITE_ANTHROPIC_MODEL=
+VITE_ANTHROPIC_BASE_URL=
+VITE_OPENAI_COMPAT_MODEL=
 
-See `PRIVACY.md` for details and tradeoffs.
+# Optional backend proxy (Gemini path in this repo)
+VITE_USE_BACKEND=false
+VITE_BACKEND_URL=
 
-On-device OCR mode uses Tesseract.js and self-hosted worker/core/language assets (same origin, no third-party CDNs). First use may download ~60MB of OCR assets and cache them in the browser.
+# Backend proxy env (server/index.js)
+GEMINI_API_KEY=
+PORT=8787
+```
 
-## Dependency Notes
+### Backend Proxy
 
-- `npm audit` currently reports a high severity advisory for `xlsx` with no fix available.
-- This app uses `xlsx` for export (write) only and does not parse untrusted spreadsheets, but you should still review advisories for your threat model.
+Start proxy locally:
+
+```bash
+npm run dev:server
+```
+
+Important: the included backend proxy currently supports Gemini extraction. Other providers currently run browser-direct via configured keys.
+
+## Privacy and Data Handling
+
+Business cards contain PII. Current behavior:
+
+- No app-controlled server storage by default
+- Uploaded images/results remain in browser memory for current session
+- Settings (mode/provider/key/model/base URL/OCR language) are stored in browser `localStorage`
+- OCR language assets are cached by the browser after first load
+
+If AI mode is enabled, selected images are sent to your configured provider (or to backend proxy when configured).
+
+For production/public deployments, keep real provider keys server-side.
+
+See `PRIVACY.md` for details.
+
+## Export Behavior
+
+- Excel/CSV include deterministic sequential `id` values
+- vCard export includes standard contact fields
+- Validate and edit rows before export for best quality
+
+## Scripts
+
+```bash
+npm run dev
+npm run dev:server
+npm run build
+npm run preview
+npm run lint
+npm run format
+```
+
+## Deployment Notes
+
+- Static deployment (GitHub Pages) works out of the box
+- Public static demos should rely on user-provided keys in Settings (not hardcoded keys)
+- For production, use a backend proxy with auth/rate limiting and no request-body logging
+
+## Known Limitations
+
+- On-device OCR is heuristic-based and can misplace fields on noisy/complex layouts
+- AI provider quality varies by model and image quality
+- `xlsx` currently has an upstream high-severity advisory with no fix available; this app uses it for export (write) only
 
 ## Roadmap
 
-Shipped:
-- Export formats: Excel, CSV, vCard
-- Dedupe toggle + basic merge strategy
-- Basic validation highlighting in the results table
-- On-device OCR mode (no uploads)
-- Minimal backend proxy option (server-side API key)
+- Stronger normalization and fix-suggestions for phone/email/URL
+- Better fuzzy dedupe + conflict-resolution UI
+- More export templates (Google Contacts, CRM-specific)
+- Provider-aware backend deployment recipes with auth + rate limiting
 
-Next:
-- Stronger validation + normalization for phone/email/URLs (and “fix suggestions” UI)
-- Better dedupe (fuzzy matching) + conflict resolution UI
-- More export templates (Google Contacts CSV, HubSpot/Salesforce-friendly CSV)
-- Deployment recipes for the backend proxy (Vercel/Cloudflare/Netlify) with rate limiting and auth
+## License
+
+MIT

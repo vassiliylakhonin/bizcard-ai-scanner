@@ -76,66 +76,130 @@ function normalizeLine(line: string): string {
   return line.replace(/\s+/g, " ").trim();
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sanitizeOcrLine(line: string): string {
+  return normalizeLine(line)
+    .replace(/^[|¦:;,_~`'"./\\\-\s]+/, "")
+    .replace(/[|¦]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function dedupeBy<T>(items: T[], keyFn: (v: T) => string): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function stripContactTokens(line: string, tokens: string[]): string {
+  let out = line;
+  for (const token of tokens) {
+    if (!token) continue;
+    out = out.replace(new RegExp(escapeRegExp(token), "gi"), " ");
+  }
+  return sanitizeOcrLine(out).replace(/^[,;:\- ]+|[,;:\- ]+$/g, "").trim();
+}
+
 function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
   const lines = text
     .split(/\r?\n/)
-    .map((l) => normalizeLine(l))
+    .map((l) => sanitizeOcrLine(l))
     .filter(Boolean);
 
   const joined = lines.join("\n");
 
-  const email = pickFirstMatch(joined, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const emails = dedupeBy(
+    Array.from(joined.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)).map((m) => m[0].trim()),
+    (v) => v.toLowerCase(),
+  );
+  const email = emails[0] || "";
 
-  // Very loose phone matcher; users can edit in the table.
-  const phone = pickFirstMatch(joined, /(\+?\d[\d\s().-]{6,}\d)/);
+  const phones = dedupeBy(
+    Array.from(joined.matchAll(/\+?\d[\d\s().-]{6,}\d/g)).map((m) => m[0].trim()),
+    (v) => v.replace(/[^\d+]/g, ""),
+  );
+  const phone = phones[0] || "";
 
-  // Basic URL/domain matcher (excluding emails).
   const websiteRaw = pickFirstMatch(
     joined.replace(email, " "),
     /((https?:\/\/)?(www\.)?[a-z0-9.-]+\.[a-z]{2,})(\/[^\s]*)?/i,
   );
-
   const website = websiteRaw && websiteRaw.includes("@") ? "" : websiteRaw;
 
-  const nonContactLines = lines.filter((l) => {
-    const lower = l.toLowerCase();
-    if (email && lower.includes(email.toLowerCase())) return false;
-    if (website && lower.includes(website.toLowerCase())) return false;
-    if (phone && l.replace(/\s+/g, "").includes(phone.replace(/\s+/g, ""))) return false;
-    return true;
-  });
+  const contactTokens = [...emails, ...phones];
+  if (website) contactTokens.push(website);
+
+  const nonContactLines = lines.map((l) => stripContactTokens(l, contactTokens)).filter(Boolean);
+
+  const titleRe = new RegExp(
+    [
+      "\\b(ceo|cto|cfo|coo|founder|manager|director|head|lead|engineer|sales|marketing|product|operations|secretary|assistant|advisor|officer|president|vice president)\\b",
+      "(директор|менеджер|инженер|руководитель|продажи|маркетинг|разработчик|секретарь|советник)",
+      "(commercial affairs|economic affairs|public affairs|consular affairs)",
+    ].join("|"),
+    "i",
+  );
+
+  const companyRe = new RegExp(
+    [
+      "\\b(embassy|consulate|ministry|department|agency|university|institute|bank|group|solutions|studio|company|corp|corporation|inc|llc|ltd|gmbh|s\\.?a\\.?)\\b",
+      "(посольство|консульство|университет|компания|министерство)",
+    ].join("|"),
+    "i",
+  );
+
+  const addressRe =
+    /\b(street|st\.|avenue|ave\.|road|rd\.|boulevard|blvd|lane|ln\.|drive|dr\.|suite|ste\.|office|building|floor|city|state|zip|postal|p\.?o\.?\s*box|box|ул\.|улица|просп|дом|офис|ashgabat|turkmenistan)\b/i;
 
   const looksLikeName = (l: string) => {
-    // 2-4 words, mostly letters, starting with uppercase (Latin/Cyrillic).
     const v = l.trim();
-    if (v.length < 3 || v.length > 48) return false;
-    if (/\d/.test(v)) return false;
-    if (/@/.test(v)) return false;
-    return /^[A-ZА-ЯЁ][\p{L}'-]+(\s+[A-ZА-ЯЁ][\p{L}'-]+){1,3}$/u.test(v);
+    if (v.length < 4 || v.length > 56) return false;
+    if (/\d|@/.test(v)) return false;
+    if (titleRe.test(v) || companyRe.test(v) || addressRe.test(v)) return false;
+
+    const tokens = v
+      .split(/\s+/)
+      .map((t) => t.replace(/^[^A-Za-zА-Яа-яЁё]+|[^A-Za-zА-Яа-яЁё'-]+$/g, ""))
+      .filter(Boolean);
+    if (tokens.length < 2 || tokens.length > 4) return false;
+    return tokens.every((t) => /^[A-ZА-ЯЁ][\p{L}'-]+$/u.test(t));
   };
 
-  const looksLikeTitle = (l: string) => {
-    const v = l.toLowerCase();
-    return (
-      /\b(ceo|cto|cfo|founder|manager|director|engineer|sales|marketing|product|operations)\b/.test(v) ||
-      /(директор|менеджер|инженер|руководитель|продажи|маркетинг|разработ)/.test(v)
-    );
+  const looksLikeTitle = (l: string) => titleRe.test(l);
+  const looksLikeCompany = (l: string) => companyRe.test(l);
+  const looksLikeAddress = (l: string) => {
+    if (/@/.test(l)) return false;
+    if (addressRe.test(l)) return true;
+    if (/\d/.test(l) && /[A-Za-zА-Яа-яЁё]/.test(l)) return true;
+    if (/^[\p{L} .'-]+,\s*[\p{L} .'-]+$/u.test(l)) return true;
+    return false;
   };
 
   const name = nonContactLines.find(looksLikeName) || "";
 
   const remaining = nonContactLines.filter((l) => l !== name);
-  const title = remaining.find(looksLikeTitle) || "";
+  const titleLines = remaining.filter((l) => looksLikeTitle(l) && !looksLikeAddress(l));
+  const title = titleLines.slice(0, 2).join(", ");
 
-  const remaining2 = remaining.filter((l) => l !== title);
-
-  // Company: pick a short line that isn't title and isn't obviously address.
+  const remaining2 = remaining.filter((l) => !titleLines.includes(l));
   const company =
-    remaining2.find((l) => l.length <= 64 && !looksLikeTitle(l) && !/(street|st\.|ave|road|ул\.|просп|дом|офис)/i.test(l)) ||
+    remaining2.find((l) => looksLikeCompany(l) && !looksLikeAddress(l)) ||
+    remaining2.find((l) => l.length <= 64 && !looksLikeAddress(l)) ||
     "";
 
   const remaining3 = remaining2.filter((l) => l !== company);
-  const address = remaining3.join(", ").trim();
+  const addressLines = remaining3.filter((l) => looksLikeAddress(l));
+  const fallbackAddressLines = remaining3.filter((l) => !looksLikeTitle(l));
+  const address = (addressLines.length > 0 ? addressLines : fallbackAddressLines).join(", ").trim();
 
   return {
     name,

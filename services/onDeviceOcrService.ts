@@ -2,6 +2,7 @@ import { BusinessCard } from "../types";
 
 type WorkerLike = {
   recognize: (image: string) => Promise<{ data: { text: string } }>;
+  setParameters?: (params: Record<string, string>) => Promise<void>;
   terminate: () => Promise<void>;
 };
 
@@ -222,6 +223,76 @@ function cleanupFieldText(value: string): string {
     .trim();
 }
 
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function cleanPhoneCandidate(phone: string): string {
+  let v = normalizeLine(phone);
+  // Remove dangling isolated trailing digits caused by OCR bleed.
+  v = v.replace(/(?:\s+\d){1,2}$/, "").trim();
+  const digits = v.replace(/[^\d]/g, "");
+  if (digits.length < 7 || digits.length > 20) return "";
+  return v;
+}
+
+function scoreParsedCard(card: Omit<BusinessCard, "id">): number {
+  let score = 0;
+  if (card.name) score += 45;
+  if (card.company) score += 30;
+  if (card.title) score += 20;
+  if (card.email && isValidEmail(card.email)) score += 40;
+  if (card.phone) score += 30;
+  if (card.website) score += 15;
+  if (card.address) score += 20;
+  if (card.name && card.name.split(/\s+/).length >= 2) score += 10;
+  if (card.address.length > 20) score += 8;
+  return score;
+}
+
+async function preprocessImageForOcr(imageSrc: string): Promise<string> {
+  if (typeof Image === "undefined" || typeof document === "undefined") return imageSrc;
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Failed to load image for OCR preprocessing."));
+    el.src = imageSrc;
+  });
+
+  const maxWidth = 2600;
+  const scale = Math.min(2, maxWidth / Math.max(img.width, 1));
+  const width = Math.max(1, Math.round(img.width * scale));
+  const height = Math.max(1, Math.round(img.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return imageSrc;
+
+  ctx.drawImage(img, 0, 0, width, height);
+
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const { data } = imageData;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    // Grayscale + contrast stretch for text clarity.
+    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    gray = (gray - 128) * 1.45 + 128;
+    if (gray < 0) gray = 0;
+    if (gray > 255) gray = 255;
+    data[i] = gray;
+    data[i + 1] = gray;
+    data[i + 2] = gray;
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  return canvas.toDataURL("image/png");
+}
+
 function extractNameCandidates(lines: string[]): string[] {
   const out: string[] = [];
   const nameRegex = /\b([A-ZА-ЯЁ][a-zа-яё'-]{2,})\s+([A-ZА-ЯЁ][a-zа-яё'-]{2,})(?:\s+([A-ZА-ЯЁ][a-zа-яё'-]{2,}))?\b/gu;
@@ -265,17 +336,23 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
 
   const phones = dedupeBy(
     Array.from(joined.matchAll(/\+?\d[\d\s().-]{6,}\d/g)).map((m) => m[0].trim()),
-    (v) => v.replace(/[^\d+]/g, ""),
+    (v) => cleanPhoneCandidate(v).replace(/[^\d+]/g, ""),
   );
-  const phone = phones[0] || "";
+  const cleanPhones = phones.map(cleanPhoneCandidate).filter(Boolean);
+  const phone = cleanPhones[0] || "";
 
   const websiteRaw = pickFirstMatch(
     joined.replace(email, " "),
     /((https?:\/\/)?(www\.)?[a-z0-9.-]+\.[a-z]{2,})(\/[^\s]*)?/i,
   );
-  const website = websiteRaw && websiteRaw.includes("@") ? "" : websiteRaw;
+  const spacedWebsite = pickFirstMatch(
+    joined.replace(email, " "),
+    /\b((?:www\.)?[a-z0-9-]{2,})\s+([a-z]{2,3})\b/i,
+  );
+  const spacedWebsiteFixed = spacedWebsite ? spacedWebsite.replace(/\s+/, ".") : "";
+  const website = websiteRaw && !websiteRaw.includes("@") ? websiteRaw : spacedWebsiteFixed;
 
-  const contactTokens = [...emails, ...phones];
+  const contactTokens = [...emails, ...cleanPhones];
   if (website) contactTokens.push(website);
 
   const nonContactLines = lines
@@ -373,8 +450,8 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
     name: cleanupFieldText(name),
     title: cleanupFieldText(title),
     company: cleanupFieldText(company),
-    email,
-    phone,
+    email: isValidEmail(email) ? email : "",
+    phone: cleanPhoneCandidate(phone),
     website,
     address,
   };
@@ -386,9 +463,32 @@ export async function extractCardDataOnDeviceOcr(
   onProgress?: (progress: number, status?: string) => void,
 ): Promise<BusinessCard> {
   const worker = await getWorker(langs, onProgress);
-  const ret = await worker.recognize(base64Image);
+  await worker.setParameters?.({
+    preserve_interword_spaces: "1",
+    user_defined_dpi: "300",
+    tessedit_pageseg_mode: "6",
+  });
 
-  const parsed = parseBusinessCardText(ret.data.text || "");
+  const retOriginal = await worker.recognize(base64Image);
+  const parsedOriginal = parseBusinessCardText(retOriginal.data.text || "");
+
+  let bestParsed = parsedOriginal;
+  let bestScore = scoreParsedCard(parsedOriginal);
+
+  try {
+    const enhancedImage = await preprocessImageForOcr(base64Image);
+    const retEnhanced = await worker.recognize(enhancedImage);
+    const parsedEnhanced = parseBusinessCardText(retEnhanced.data.text || "");
+    const enhancedScore = scoreParsedCard(parsedEnhanced);
+    if (enhancedScore > bestScore) {
+      bestParsed = parsedEnhanced;
+      bestScore = enhancedScore;
+    }
+  } catch (err) {
+    console.warn("OCR preprocessing pass failed, using original OCR output:", err);
+  }
+
+  const parsed = bestParsed;
   return {
     id: crypto.randomUUID(),
     ...parsed,

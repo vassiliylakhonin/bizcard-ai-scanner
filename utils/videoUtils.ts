@@ -36,7 +36,7 @@ export const extractFramesFromVideo = async (
     video.onseeked = async () => {
       // Draw frame
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageUrl = canvas.toDataURL('image/jpeg', 0.8); // 0.8 quality to save size
+      const imageUrl = canvas.toDataURL('image/jpeg', 0.95); // Higher quality improves OCR accuracy
       
       frames.push({ timestamp: currentTime, imageUrl });
       

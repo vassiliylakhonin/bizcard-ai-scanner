@@ -16,12 +16,21 @@ const CARD_FIELDS: Array<keyof BusinessCard> = [
 interface ResultsTableProps {
   frames: ProcessedFrame[];
   onRetry: () => void;
+  onOpenSettings: () => void;
 }
 
-export const ResultsTable: React.FC<ResultsTableProps> = ({ frames, onRetry }) => {
+export const ResultsTable: React.FC<ResultsTableProps> = ({ frames, onRetry, onOpenSettings }) => {
   // Only show frames that were selected and processed successfully (or have data)
   const failedFrames = frames.filter((f) => f.isSelected && f.status === 'error');
   const validFrames = frames.filter((f) => f.isSelected && f.status === 'completed' && f.data);
+  const failedMessages = Array.from(
+    new Set(
+      failedFrames
+        .map((f) => (f.errorMessage || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const hasMissingKeyError = failedMessages.some((m) => /missing gemini api key/i.test(m));
   const [data, setData] = useState<BusinessCard[]>(validFrames.map((f) => f.data!));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dedupeEnabled, setDedupeEnabled] = useState<boolean>(true);
@@ -226,6 +235,24 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ frames, onRetry }) =
           </button>
         </div>
       </div>
+      {failedMessages.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <div className="text-sm font-semibold text-amber-900 mb-2">Why items failed</div>
+          <ul className="list-disc pl-5 text-sm text-amber-900 space-y-1">
+            {failedMessages.map((msg) => (
+              <li key={msg}>{msg}</li>
+            ))}
+          </ul>
+          {hasMissingKeyError && (
+            <button
+              onClick={onOpenSettings}
+              className="mt-3 inline-flex items-center px-3 py-2 rounded-lg border border-amber-400 text-amber-900 hover:bg-amber-100 text-sm font-medium"
+            >
+              Open Settings
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="overflow-x-auto bg-white rounded-xl shadow border border-slate-200">
         <table className="min-w-full divide-y divide-slate-200">

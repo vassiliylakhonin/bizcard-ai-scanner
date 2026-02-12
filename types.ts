@@ -16,6 +16,7 @@ export interface ProcessedFrame {
   isSelected: boolean;
   status: 'pending' | 'processing' | 'completed' | 'error';
   data?: BusinessCard;
+  errorMessage?: string;
 }
 
 export enum AppStep {

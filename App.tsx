@@ -41,14 +41,15 @@ export default function App() {
         if (!frame) break;
 
         // Update status to processing
-        setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'processing' } : f));
+        setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'processing', errorMessage: undefined } : f));
 
         try {
           const data = await extractCardData(frame.imageUrl);
-          setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'completed', data } : f));
+          setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'completed', data, errorMessage: undefined } : f));
         } catch (err) {
           console.error("Frame processing error:", err);
-          setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'error' } : f));
+          const errorMessage = err instanceof Error ? err.message : "Unknown processing error";
+          setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'error', errorMessage } : f));
         } finally {
           setProcessedCount(c => c + 1);
         }
@@ -159,7 +160,11 @@ export default function App() {
         )}
 
         {step === AppStep.RESULTS && (
-          <ResultsTable frames={frames} onRetry={resetApp} />
+          <ResultsTable
+            frames={frames}
+            onRetry={resetApp}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
         )}
       </main>
 

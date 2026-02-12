@@ -23,11 +23,13 @@ This project is a privacy-focused contact extraction app with two processing pat
 - Structured extraction to: `name`, `company`, `title`, `email`, `phone`, `website`, `address`
 - Configurable AI provider in Settings
 - On-device OCR mode (no card-image uploads)
+- AI rate-limit handling with automatic retries (where retry hints are available)
 - Review/edit table before export
 - Dedupe toggle + basic merge strategy
 - Validation highlighting for email/phone/URL
 - Export to `.xlsx`, `.csv`, `.vcf`
 - Sequential export IDs (`1, 2, 3...`) instead of random UUIDs
+- Clickable app logo/title in header to return to the main upload page
 
 ## Tech Stack
 
@@ -107,7 +109,7 @@ Business cards contain PII. Current behavior:
 - No app-controlled server storage by default
 - Uploaded images/results remain in browser memory for current session
 - Settings (mode/provider/key/model/base URL/OCR language) are stored in browser `localStorage`
-- OCR language assets are cached by the browser after first load
+- OCR assets are cached by the browser after first load
 
 If AI mode is enabled, selected images are sent to your configured provider (or to backend proxy when configured).
 
@@ -141,7 +143,9 @@ npm run format
 ## Known Limitations
 
 - On-device OCR is heuristic-based and can misplace fields on noisy/complex layouts
+- If local OCR worker asset loading fails, the app can fall back to Tesseract default asset sources (third-party CDNs) to keep OCR working
 - AI provider quality varies by model and image quality
+- Gemini free-tier quotas can still throttle large batches; app retries, but hard quota exhaustion will still fail until limits reset
 - `xlsx` currently has an upstream high-severity advisory with no fix available; this app uses it for export (write) only
 
 ## Roadmap

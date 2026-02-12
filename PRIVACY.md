@@ -24,7 +24,7 @@ Note: the backend proxy included in this repository currently supports Gemini ex
 When On-device OCR is enabled, images are processed locally in the browser with Tesseract.js.
 
 - Card images are not uploaded to an AI provider in this mode.
-- OCR language assets are loaded from this app origin and cached in the browser.
+- OCR assets are loaded and cached in the browser. The app prefers self-hosted local assets, but may fall back to Tesseract default asset sources if local worker loading fails.
 
 ## Data Retention
 

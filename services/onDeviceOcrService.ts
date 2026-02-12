@@ -113,6 +113,26 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean)));
 }
 
+const NAME_STOPWORDS = new Set(
+  [
+    "second",
+    "first",
+    "third",
+    "secretary",
+    "economic",
+    "commercial",
+    "affairs",
+    "embassy",
+    "consulate",
+    "department",
+    "ministry",
+    "office",
+    "street",
+    "ashgabat",
+    "turkmenistan",
+  ].map((v) => v.toLowerCase()),
+);
+
 function tokenizeWords(line: string): string[] {
   return line
     .split(/\s+/)
@@ -162,6 +182,51 @@ function extractBestNameCandidate(lines: string[], isTitleLine: (line: string) =
   return candidates[0].value;
 }
 
+function cleanSemanticLine(line: string): string {
+  return sanitizeOcrLine(line)
+    .replace(/^[A-Za-z]{1,2}\s*:\s*/g, "")
+    .replace(/^[A-Za-z]{1,2}\s+(?=[A-ZА-ЯЁ])/u, "")
+    .replace(/\b[|¦]\b/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function cleanupFieldText(value: string): string {
+  return sanitizeOcrLine(value)
+    .replace(/^[,;:\- ]+|[,;:\- ]+$/g, "")
+    .replace(/\b[ai]\s+(?=[A-ZА-ЯЁ])/g, "")
+    .replace(/\bBoy\s+(?=\d)/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function extractNameCandidates(lines: string[]): string[] {
+  const out: string[] = [];
+  const nameRegex = /\b([A-ZА-ЯЁ][a-zа-яё'-]{2,})\s+([A-ZА-ЯЁ][a-zа-яё'-]{2,})(?:\s+([A-ZА-ЯЁ][a-zа-яё'-]{2,}))?\b/gu;
+  for (const line of lines) {
+    const matches = Array.from(line.matchAll(nameRegex));
+    for (const m of matches) {
+      const candidate = sanitizeOcrLine(m[0] || "");
+      if (!candidate) continue;
+      const words = tokenizeWords(candidate);
+      if (words.length < 2 || words.length > 3) continue;
+      if (words.some((w) => NAME_STOPWORDS.has(w.toLowerCase()))) continue;
+      out.push(candidate);
+    }
+  }
+  return uniqueStrings(out);
+}
+
+function extractTitleFromSegment(segment: string): string {
+  const s = cleanupFieldText(segment);
+  if (!s) return "";
+  const anchorRe =
+    /\b(second|first|third|deputy|assistant|chief|senior|junior|lead|principal|secretary|director|manager|engineer|advisor|officer|commercial|economic|public|consular|affairs)\b/i;
+  const m = s.match(anchorRe);
+  if (!m || m.index === undefined) return s;
+  return cleanupFieldText(s.slice(m.index));
+}
+
 function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
   const lines = text
     .split(/\r?\n/)
@@ -191,7 +256,10 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
   const contactTokens = [...emails, ...phones];
   if (website) contactTokens.push(website);
 
-  const nonContactLines = lines.map((l) => stripContactTokens(l, contactTokens)).filter(Boolean);
+  const nonContactLines = lines
+    .map((l) => stripContactTokens(l, contactTokens))
+    .map((l) => cleanSemanticLine(l))
+    .filter(Boolean);
 
   const titleRe = new RegExp(
     [
@@ -238,7 +306,8 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
   };
 
   const heuristicName = nonContactLines.find(looksLikeName) || "";
-  const extractedName = extractBestNameCandidate(nonContactLines, looksLikeTitle, looksLikeAddress);
+  const explicitNameCandidates = extractNameCandidates(nonContactLines);
+  const extractedName = explicitNameCandidates[0] || extractBestNameCandidate(nonContactLines, looksLikeTitle, looksLikeAddress);
   const name = extractedName || heuristicName;
 
   const remaining = nonContactLines
@@ -247,10 +316,15 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
 
   const splitSegments = remaining
     .flatMap((l) => l.split(/\s*,\s*/g))
-    .map((s) => sanitizeOcrLine(s))
+    .map((s) => cleanSemanticLine(s))
     .filter(Boolean);
 
-  const titleLines = uniqueStrings(splitSegments.filter((l) => looksLikeTitle(l) && !looksLikeAddress(l)));
+  const titleLines = uniqueStrings(
+    splitSegments
+      .filter((l) => looksLikeTitle(l) && !looksLikeAddress(l))
+      .map((l) => extractTitleFromSegment(l))
+      .filter(Boolean),
+  );
   const title = titleLines.slice(0, 3).join(", ");
 
   const remaining2 = uniqueStrings(
@@ -271,12 +345,12 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
   const remaining3 = remaining2.filter((l) => l !== company);
   const addressLines = remaining3.filter((l) => looksLikeAddress(l));
   const fallbackAddressLines = remaining3.filter((l) => !looksLikeTitle(l));
-  const address = (addressLines.length > 0 ? addressLines : fallbackAddressLines).join(", ").trim();
+  const address = cleanupFieldText((addressLines.length > 0 ? addressLines : fallbackAddressLines).join(", ").trim());
 
   return {
-    name,
-    title,
-    company,
+    name: cleanupFieldText(name),
+    title: cleanupFieldText(title),
+    company: cleanupFieldText(company),
     email,
     phone,
     website,

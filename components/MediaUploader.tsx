@@ -8,7 +8,7 @@ interface MediaUploaderProps {
 }
 
 export const MediaUploader: React.FC<MediaUploaderProps> = ({ onFramesExtracted }) => {
-  const [activeTab, setActiveTab] = useState<'video' | 'photo'>('video');
+  const [activeTab, setActiveTab] = useState<'video' | 'photo'>('photo');
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);

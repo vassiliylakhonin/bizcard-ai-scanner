@@ -13,6 +13,10 @@ const CARD_FIELDS: Array<keyof BusinessCard> = [
   'address',
 ];
 
+type ExportRow = {
+  id: number;
+} & Record<(typeof CARD_FIELDS)[number], string>;
+
 interface ResultsTableProps {
   frames: ProcessedFrame[];
   onRetry: () => void;
@@ -34,6 +38,18 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ frames, onRetry, onO
   const [data, setData] = useState<BusinessCard[]>(validFrames.map((f) => f.data!));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dedupeEnabled, setDedupeEnabled] = useState<boolean>(true);
+
+  const buildExportRows = (rows: BusinessCard[]): ExportRow[] =>
+    rows.map((card, idx) => ({
+      id: idx + 1,
+      name: card.name || '',
+      company: card.company || '',
+      title: card.title || '',
+      email: card.email || '',
+      phone: card.phone || '',
+      website: card.website || '',
+      address: card.address || '',
+    }));
 
   useEffect(() => {
     const nextValid = frames
@@ -115,7 +131,10 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ frames, onRetry, onO
   }, [data, dedupeEnabled]);
 
   const handleExport = () => {
-    const ws = XLSX.utils.json_to_sheet(dedupeResult.rows);
+    const exportRows = buildExportRows(dedupeResult.rows);
+    const ws = XLSX.utils.json_to_sheet(exportRows, {
+      header: ['id', ...CARD_FIELDS],
+    });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Business Cards");
     XLSX.writeFile(wb, "contacts_export.xlsx");
@@ -140,9 +159,9 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ frames, onRetry, onO
   };
 
   const exportCsv = () => {
-    const rows = dedupeResult.rows;
-    const header = CARD_FIELDS.join(',');
-    const lines = rows.map((c) => CARD_FIELDS.map((f) => escapeCsv(String(c[f] ?? ''))).join(','));
+    const rows = buildExportRows(dedupeResult.rows);
+    const header = ['id', ...CARD_FIELDS].join(',');
+    const lines = rows.map((c) => ['id', ...CARD_FIELDS].map((f) => escapeCsv(String(c[f as keyof ExportRow] ?? ''))).join(','));
     downloadTextFile('contacts_export.csv', [header, ...lines].join('\n'), 'text/csv;charset=utf-8');
   };
 

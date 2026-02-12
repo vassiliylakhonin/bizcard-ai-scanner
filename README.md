@@ -16,6 +16,8 @@ This project is a privacy-focused contact extraction app with two processing pat
 - `On-device OCR`: images stay in the browser and are processed with Tesseract.js.
 - `AI mode`: use your preferred provider (`Gemini`, `OpenAI`, `Anthropic`, or `OpenAI-compatible`) to improve extraction quality.
 
+Note: On-device OCR is private and fast, but may be less accurate than AI on low-quality or complex card layouts.
+
 ## Core Features
 
 - Upload multiple photos (default flow) or a short video

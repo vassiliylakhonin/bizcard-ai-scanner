@@ -153,7 +153,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                 <span>
                   <span className="font-medium">On-device OCR (no uploads)</span>
                   <span className="block text-xs text-slate-500">
-                    Images are processed locally in your browser. No card images are uploaded.
+                    Images are processed locally in your browser. No card images are uploaded. Accuracy may be lower than AI on low-quality or complex card layouts.
                   </span>
                 </span>
               </label>

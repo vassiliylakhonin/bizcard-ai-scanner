@@ -13,7 +13,17 @@ import { AIProvider, getStoredAIProvider, getStoredProcessingMode, ProcessingMod
 const BATCH_SIZE = 3; // Number of concurrent requests
 
 function normalizeErrorMessage(err: unknown): string {
-  if (err instanceof Error && err.message) return err.message;
+  if (err instanceof Error && err.message) {
+    const msg = err.message.trim();
+    if (/RESOURCE_EXHAUSTED|quota exceeded|rate limit|too many requests|429/i.test(msg)) {
+      const m = msg.match(/retry(?:\s+in)?\s*([\d.]+)\s*s/i) || msg.match(/"retryDelay":"(\d+)s"/i);
+      const sec = m ? Math.max(1, Math.ceil(Number(m[1] || "0"))) : null;
+      return sec
+        ? `Rate limit reached. Retry in about ${sec}s, or process fewer cards at once.`
+        : "Rate limit reached. Please wait a bit and retry.";
+    }
+    return msg;
+  }
   if (typeof err === 'string' && err.trim()) return err;
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = String((err as { message?: unknown }).message || '').trim();
@@ -53,7 +63,11 @@ export default function App() {
   const processBatch = async (itemsToProcess: ProcessedFrame[]) => {
     // A simple semaphore/batch queue implementation
     const queue = [...itemsToProcess];
-    const batchSize = processingMode === "on_device_ocr" ? 1 : BATCH_SIZE;
+    const batchSize = processingMode === "on_device_ocr"
+      ? 1
+      : aiProvider === "gemini"
+        ? 1
+        : BATCH_SIZE;
     
     const worker = async () => {
       while (queue.length > 0) {

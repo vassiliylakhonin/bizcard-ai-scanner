@@ -45,6 +45,100 @@ type ProviderConfig = {
   baseUrl: string;
 };
 
+class ProviderRateLimitError extends Error {
+  retryMs: number;
+
+  constructor(message: string, retryMs: number) {
+    super(message);
+    this.name = "ProviderRateLimitError";
+    this.retryMs = Math.max(1000, Math.min(retryMs, 120000));
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function toMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err || "");
+  }
+}
+
+function parseRetryDelayMsFromText(text: string): number | null {
+  if (!text) return null;
+  const m1 = text.match(/retry(?:\s+in)?\s*([\d.]+)\s*s/i);
+  if (m1) {
+    const secs = Number(m1[1]);
+    if (Number.isFinite(secs) && secs > 0) return Math.ceil(secs * 1000);
+  }
+  const m2 = text.match(/"retryDelay"\s*:\s*"(\d+)s"/i);
+  if (m2) {
+    const secs = Number(m2[1]);
+    if (Number.isFinite(secs) && secs > 0) return secs * 1000;
+  }
+  return null;
+}
+
+function parseRetryDelayMsFromPayload(payload: Record<string, unknown>, fallbackText = ""): number | null {
+  const details = Array.isArray(payload?.error && (payload.error as Record<string, unknown>).details)
+    ? ((payload.error as Record<string, unknown>).details as Array<Record<string, unknown>>)
+    : [];
+  for (const d of details) {
+    const retry = String(d?.retryDelay || "").trim();
+    const fromDetail = parseRetryDelayMsFromText(retry);
+    if (fromDetail) return fromDetail;
+  }
+
+  const errMsg = String(
+    (payload?.error && (payload.error as Record<string, unknown>).message) ||
+    payload?.message ||
+    "",
+  );
+  return parseRetryDelayMsFromText(errMsg) || parseRetryDelayMsFromText(fallbackText);
+}
+
+function isRateLimitedMessage(text: string): boolean {
+  return /429|resource_exhausted|quota exceeded|rate limit|too many requests/i.test(text || "");
+}
+
+function normalizeRateLimitError(provider: AIProvider, err: unknown): ProviderRateLimitError | null {
+  if (err instanceof ProviderRateLimitError) return err;
+
+  const text = toMessage(err);
+  if (!isRateLimitedMessage(text)) return null;
+
+  const retryMs = parseRetryDelayMsFromText(text) || 30000;
+  return new ProviderRateLimitError(
+    `${providerLabel(provider)} rate limit reached. Retry in about ${Math.ceil(retryMs / 1000)}s or process fewer cards at once.`,
+    retryMs,
+  );
+}
+
+async function withRateLimitRetries<T>(
+  provider: AIProvider,
+  fn: () => Promise<T>,
+  maxRetries = 3,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const rateErr = normalizeRateLimitError(provider, err);
+      if (!rateErr) throw err;
+      if (attempt >= maxRetries) throw rateErr;
+      await sleep(rateErr.retryMs + attempt * 500);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("AI request failed.");
+}
+
 function envForProvider(provider: AIProvider) {
   if (provider === "gemini") {
     return {
@@ -196,6 +290,13 @@ async function extractViaOpenAICompatible(base64Image: string, config: ProviderC
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 429) {
+      const retryMs = parseRetryDelayMsFromPayload(payload) || 30000;
+      throw new ProviderRateLimitError(
+        `${providerLabel(config.provider)} rate limit reached. Retry in about ${Math.ceil(retryMs / 1000)}s.`,
+        retryMs,
+      );
+    }
     throw new Error(
       payload?.error?.message || payload?.error || `Provider error (${response.status})`,
     );
@@ -256,6 +357,13 @@ async function extractViaAnthropic(cleanBase64: string, config: ProviderConfig):
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 429) {
+      const retryMs = parseRetryDelayMsFromPayload(payload) || 30000;
+      throw new ProviderRateLimitError(
+        `${providerLabel(config.provider)} rate limit reached. Retry in about ${Math.ceil(retryMs / 1000)}s.`,
+        retryMs,
+      );
+    }
     throw new Error(
       payload?.error?.message || payload?.error?.type || payload?.error || `Anthropic error (${response.status})`,
     );
@@ -309,28 +417,37 @@ export const extractCardData = async (base64Image: string, options?: ExtractOpti
     const backendEnabled = config.provider === "gemini" && (useBackend || backendUrl);
 
     if (backendEnabled) {
-      const endpoint = backendUrl ? `${backendUrl}/api/extract` : "/api/extract";
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ base64Image }),
+      return await withRateLimitRetries("gemini", async () => {
+        const endpoint = backendUrl ? `${backendUrl}/api/extract` : "/api/extract";
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ base64Image }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const retryMs = parseRetryDelayMsFromPayload(payload, String(payload?.error || ""));
+          if (retryMs || res.status === 429 || isRateLimitedMessage(String(payload?.error || ""))) {
+            throw new ProviderRateLimitError(
+              `Gemini rate limit reached. Retry in about ${Math.ceil((retryMs || 30000) / 1000)}s.`,
+              retryMs || 30000,
+            );
+          }
+          throw new Error(payload?.error || `Backend error (${res.status})`);
+        }
+        return toBusinessCard(payload);
       });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(payload?.error || `Backend error (${res.status})`);
-      }
-      return toBusinessCard(payload);
     }
 
     if (config.provider === "gemini") {
-      return await extractViaGemini(cleanBase64, config);
+      return await withRateLimitRetries(config.provider, async () => extractViaGemini(cleanBase64, config));
     }
 
     if (config.provider === "openai" || config.provider === "openai_compatible") {
-      return await extractViaOpenAICompatible(base64Image, config);
+      return await withRateLimitRetries(config.provider, async () => extractViaOpenAICompatible(base64Image, config));
     }
 
-    return await extractViaAnthropic(cleanBase64, config);
+    return await withRateLimitRetries(config.provider, async () => extractViaAnthropic(cleanBase64, config));
   } catch (error) {
     console.error("AI Extraction Error:", error);
     throw error;

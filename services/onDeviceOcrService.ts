@@ -67,6 +67,12 @@ function assetPath(path: string) {
   return `${base}${path}`;
 }
 
+function absoluteAssetPath(path: string) {
+  const rel = assetPath(path);
+  if (typeof window === "undefined") return rel;
+  return new URL(rel, window.location.origin).toString();
+}
+
 async function getWorker(langs: string, onProgress?: (progress: number, status?: string) => void) {
   if (workerPromise && workerLangs === langs) return workerPromise;
 
@@ -88,38 +94,74 @@ async function getWorker(langs: string, onProgress?: (progress: number, status?:
     const mod = await import("tesseract.js");
     const createWorker = mod.createWorker as unknown as CreateWorkerFn;
 
-    try {
-      const worker = await createWorker(langs, 1, {
-        // Self-hosted assets (same-origin) to avoid third-party CDNs.
-        workerPath: assetPath("tesseract/worker.min.js"),
-        corePath: assetPath("tesseract-core").replace(/\/$/, ""),
-        langPath: assetPath("tessdata").replace(/\/$/, ""),
-        // Some browsers/environments fail to load blob-imported worker scripts.
-        workerBlobURL: false,
-        gzip: true,
-        logger: (m: unknown) => {
-          if (!onProgress) return;
-          if (typeof m !== "object" || m === null) return;
-          const rec = m as Record<string, unknown>;
-          const progress = typeof rec.progress === "number" ? rec.progress : undefined;
-          const status = typeof rec.status === "string" ? rec.status : undefined;
-          if (progress !== undefined) onProgress(progress, status);
-        },
-        errorHandler: (err: unknown) => {
-          console.error("Tesseract worker runtime error:", err);
-        },
-      });
+    const sharedLogger = (m: unknown) => {
+      if (!onProgress) return;
+      if (typeof m !== "object" || m === null) return;
+      const rec = m as Record<string, unknown>;
+      const progress = typeof rec.progress === "number" ? rec.progress : undefined;
+      const status = typeof rec.status === "string" ? rec.status : undefined;
+      if (progress !== undefined) onProgress(progress, status);
+    };
 
-      return worker;
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err || "unknown worker init error");
-      if (/importing a module script failed/i.test(raw)) {
-        throw new Error(
-          "OCR worker failed to load assets (module script import failed). Hard refresh the page and try again. If it persists, clear site data for this domain and retry.",
-        );
+    const sharedErrorHandler = (err: unknown) => {
+      console.error("Tesseract worker runtime error:", err);
+    };
+
+    const attempts: Array<{ name: string; options: CreateWorkerOptions }> = [
+      {
+        name: "local-assets-no-blob",
+        options: {
+          workerPath: absoluteAssetPath("tesseract/worker.min.js"),
+          corePath: absoluteAssetPath("tesseract-core").replace(/\/$/, ""),
+          langPath: absoluteAssetPath("tessdata").replace(/\/$/, ""),
+          workerBlobURL: false,
+          gzip: true,
+          logger: sharedLogger,
+          errorHandler: sharedErrorHandler,
+        },
+      },
+      {
+        name: "local-assets-blob",
+        options: {
+          workerPath: absoluteAssetPath("tesseract/worker.min.js"),
+          corePath: absoluteAssetPath("tesseract-core").replace(/\/$/, ""),
+          langPath: absoluteAssetPath("tessdata").replace(/\/$/, ""),
+          workerBlobURL: true,
+          gzip: true,
+          logger: sharedLogger,
+          errorHandler: sharedErrorHandler,
+        },
+      },
+      {
+        // Final fallback: let Tesseract use default paths (CDN) if local assets fail to load.
+        name: "tesseract-defaults",
+        options: {
+          workerBlobURL: true,
+          gzip: true,
+          logger: sharedLogger,
+          errorHandler: sharedErrorHandler,
+        },
+      },
+    ];
+
+    const errors: string[] = [];
+    for (const attempt of attempts) {
+      try {
+        const worker = await createWorker(langs, 1, attempt.options);
+        return worker;
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err || "unknown worker init error");
+        errors.push(`${attempt.name}: ${raw}`);
       }
-      throw new Error(`OCR worker initialization failed: ${raw}`);
     }
+
+    const combined = errors.join(" | ");
+    if (/importing a module script failed/i.test(combined)) {
+      throw new Error(
+        "OCR worker failed to load module scripts after multiple retries. Hard refresh the page. If it persists, clear site data and try again.",
+      );
+    }
+    throw new Error(`OCR worker initialization failed after retries: ${combined}`);
   })().catch((err) => {
     // Do not keep a rejected promise cached; allow retry.
     workerPromise = null;

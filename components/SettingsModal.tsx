@@ -101,7 +101,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                   checked={mode === "ai"}
                   onChange={() => {
                     setMode("ai");
-                    setSaved(false);
+                    setStoredProcessingMode("ai");
+                    setSaved(true);
+                    onSaved?.();
                   }}
                   className="mt-1"
                 />
@@ -120,7 +122,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                   checked={mode === "on_device_ocr"}
                   onChange={() => {
                     setMode("on_device_ocr");
-                    setSaved(false);
+                    setStoredProcessingMode("on_device_ocr");
+                    setSaved(true);
+                    onSaved?.();
                   }}
                   className="mt-1"
                 />
@@ -139,8 +143,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                 <select
                   value={ocrLangs}
                   onChange={(e) => {
-                    setOcrLangs(e.target.value as OcrLangs);
-                    setSaved(false);
+                    const next = e.target.value as OcrLangs;
+                    setOcrLangs(next);
+                    setStoredOcrLangs(next);
+                    setSaved(true);
+                    onSaved?.();
                   }}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
                 >

@@ -3,7 +3,7 @@ import { MediaUploader } from './components/MediaUploader';
 import { FrameGallery } from './components/FrameGallery';
 import { ResultsTable } from './components/ResultsTable';
 import { AppStep, ProcessedFrame } from './types';
-import { extractCardData } from './services/geminiService';
+import { extractCardData, getExtractionPreflightError } from './services/geminiService';
 import { Loader2 } from 'lucide-react';
 import { Settings } from 'lucide-react';
 import { SettingsModal } from './components/SettingsModal';
@@ -11,6 +11,22 @@ import { PrivacyNotice } from './components/PrivacyNotice';
 import { getStoredProcessingMode, ProcessingMode } from './utils/settings';
 
 const BATCH_SIZE = 3; // Number of concurrent requests
+
+function normalizeErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string' && err.trim()) return err;
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = String((err as { message?: unknown }).message || '').trim();
+    if (msg) return msg;
+  }
+  try {
+    const raw = JSON.stringify(err);
+    if (raw && raw !== '{}') return raw;
+  } catch {
+    // ignore
+  }
+  return 'Unknown processing error';
+}
 
 export default function App() {
   const [step, setStep] = useState<AppStep>(AppStep.UPLOAD);
@@ -44,11 +60,11 @@ export default function App() {
         setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'processing', errorMessage: undefined } : f));
 
         try {
-          const data = await extractCardData(frame.imageUrl);
+          const data = await extractCardData(frame.imageUrl, { mode: processingMode });
           setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'completed', data, errorMessage: undefined } : f));
         } catch (err) {
           console.error("Frame processing error:", err);
-          const errorMessage = err instanceof Error ? err.message : "Unknown processing error";
+          const errorMessage = normalizeErrorMessage(err);
           setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'error', errorMessage } : f));
         } finally {
           setProcessedCount(c => c + 1);
@@ -62,6 +78,13 @@ export default function App() {
   };
 
   const startProcessing = async () => {
+    const preflightError = getExtractionPreflightError(processingMode);
+    if (preflightError) {
+      alert(preflightError);
+      setSettingsOpen(true);
+      return;
+    }
+
     setStep(AppStep.PROCESSING);
     setProcessedCount(0);
     const selectedFrames = frames.filter(f => f.isSelected);

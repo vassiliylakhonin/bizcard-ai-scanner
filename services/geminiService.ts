@@ -1,6 +1,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { BusinessCard } from "../types";
-import { getStoredGeminiApiKey, getStoredOcrLangs, getStoredProcessingMode } from "../utils/settings";
+import {
+  getStoredGeminiApiKey,
+  getStoredOcrLangs,
+  getStoredProcessingMode,
+  OcrLangs,
+  ProcessingMode,
+} from "../utils/settings";
 import { extractCardDataOnDeviceOcr } from "./onDeviceOcrService";
 
 const CARD_SCHEMA = {
@@ -17,10 +23,32 @@ const CARD_SCHEMA = {
   required: ["name", "company"],
 };
 
-export const extractCardData = async (base64Image: string): Promise<BusinessCard> => {
-  const mode = getStoredProcessingMode();
+type ExtractOptions = {
+  mode?: ProcessingMode;
+  ocrLangs?: OcrLangs;
+};
+
+export const getExtractionPreflightError = (modeArg?: ProcessingMode): string | null => {
+  const mode = modeArg || getStoredProcessingMode();
+  if (mode === "on_device_ocr") return null;
+
+  const useBackend = (import.meta.env.VITE_USE_BACKEND || "").toLowerCase() === "true";
+  const backendUrl = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
+  if (useBackend || backendUrl) return null;
+
+  const apiKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
+  const storedKey = getStoredGeminiApiKey();
+  const finalKey = storedKey || apiKey;
+  if (!finalKey) {
+    return "Missing Gemini API key. Set VITE_GEMINI_API_KEY in .env.local, enable the backend proxy, or paste a key in Settings.";
+  }
+  return null;
+};
+
+export const extractCardData = async (base64Image: string, options?: ExtractOptions): Promise<BusinessCard> => {
+  const mode = options?.mode || getStoredProcessingMode();
   if (mode === "on_device_ocr") {
-    const langs = getStoredOcrLangs();
+    const langs = options?.ocrLangs || getStoredOcrLangs();
     return await extractCardDataOnDeviceOcr(base64Image, langs);
   }
 

@@ -34,7 +34,7 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ frames, onRetry, onO
         .filter(Boolean),
     ),
   );
-  const hasMissingKeyError = failedMessages.some((m) => /missing gemini api key/i.test(m));
+  const hasMissingKeyError = failedMessages.some((m) => /missing .*api key|missing base url/i.test(m));
   const [data, setData] = useState<BusinessCard[]>(validFrames.map((f) => f.data!));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dedupeEnabled, setDedupeEnabled] = useState<boolean>(true);

@@ -11,13 +11,15 @@ This project supports multiple processing modes so you can control where data go
 
 ## Processing Modes
 
-### 1) AI (Gemini)
+### 1) AI (Configurable Provider)
 
-When "AI (Gemini)" mode is enabled, selected images are sent to:
-- Google Gemini directly from the browser (if using a client-side API key), or
+When AI mode is enabled, selected images are sent to:
+- your configured provider directly from the browser (Gemini/OpenAI/Anthropic/OpenAI-compatible), or
 - your backend proxy (recommended for production deployments)
 
-If you deploy this app publicly, do not ship a real API key to the browser. Use a backend proxy and keep secrets server-side.
+Note: the included backend proxy in this repo currently supports Gemini.
+
+If you deploy this app publicly, do not ship real API keys to the browser. Use a backend proxy and keep secrets server-side.
 
 ### 2) On-device OCR (No Uploads)
 

@@ -8,7 +8,7 @@ import { Loader2 } from 'lucide-react';
 import { Settings } from 'lucide-react';
 import { SettingsModal } from './components/SettingsModal';
 import { PrivacyNotice } from './components/PrivacyNotice';
-import { getStoredProcessingMode, ProcessingMode } from './utils/settings';
+import { AIProvider, getStoredAIProvider, getStoredProcessingMode, ProcessingMode } from './utils/settings';
 
 const BATCH_SIZE = 3; // Number of concurrent requests
 
@@ -35,7 +35,11 @@ export default function App() {
   const selectedCount = frames.filter((f) => f.isSelected).length;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [processingMode, setProcessingMode] = useState<ProcessingMode>(() => getStoredProcessingMode());
+  const [aiProvider, setAiProvider] = useState<AIProvider>(() => getStoredAIProvider());
   const isAiMode = processingMode === "ai";
+  const aiProviderLabel = aiProvider === "openai_compatible"
+    ? "OpenAI-compatible provider"
+    : aiProvider.charAt(0).toUpperCase() + aiProvider.slice(1);
 
   const handleFramesExtracted = (extractedFrames: ProcessedFrame[]) => {
     setFrames(extractedFrames);
@@ -103,7 +107,10 @@ export default function App() {
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        onSaved={() => setProcessingMode(getStoredProcessingMode())}
+        onSaved={() => {
+          setProcessingMode(getStoredProcessingMode());
+          setAiProvider(getStoredAIProvider());
+        }}
       />
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -140,10 +147,10 @@ export default function App() {
                 Digitize Your Business Cards
               </h1>
               <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-                Upload a video or photos of your business cards. Extract contacts with Gemini (optional) or run fully on-device OCR (no uploads), then export to Excel/CSV/vCard.
+                Upload a video or photos of your business cards. Extract contacts with your chosen AI provider (optional) or run fully on-device OCR (no uploads), then export to Excel/CSV/vCard.
               </p>
             </div>
-            <PrivacyNotice mode={processingMode} onOpenSettings={() => setSettingsOpen(true)} />
+            <PrivacyNotice mode={processingMode} aiProvider={aiProvider} onOpenSettings={() => setSettingsOpen(true)} />
             <MediaUploader onFramesExtracted={handleFramesExtracted} />
           </div>
         )}
@@ -165,7 +172,7 @@ export default function App() {
             <h2 className="text-2xl font-bold text-slate-900 mb-2">Processing Images</h2>
             <p className="text-slate-500 mb-6">
               {isAiMode
-                ? "Gemini is extracting contact details from your selected cards. This may take a moment."
+                ? `${aiProviderLabel} is extracting contact details from your selected cards. This may take a moment.`
                 : "On-device OCR is extracting contact details from your selected cards. This may take a moment."}
             </p>
             
@@ -193,7 +200,7 @@ export default function App() {
 
       <footer className="bg-white border-t border-slate-200 py-6 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-slate-400 text-sm">
-          Gemini (optional), Tesseract.js (optional) & React
+          Configurable AI providers (optional), Tesseract.js (optional) & React
         </div>
       </footer>
     </div>

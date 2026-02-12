@@ -1,13 +1,21 @@
 import React from "react";
 import { ShieldAlert } from "lucide-react";
-import { ProcessingMode } from "../utils/settings";
+import { AIProvider, ProcessingMode } from "../utils/settings";
 
 interface PrivacyNoticeProps {
   mode: ProcessingMode;
+  aiProvider: AIProvider;
   onOpenSettings: () => void;
 }
 
-export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({ mode, onOpenSettings }) => {
+const providerLabels: Record<AIProvider, string> = {
+  gemini: "Gemini",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  openai_compatible: "OpenAI-compatible provider",
+};
+
+export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({ mode, aiProvider, onOpenSettings }) => {
   const isOnDevice = mode === "on_device_ocr";
 
   return (
@@ -41,8 +49,8 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({ mode, onOpenSettin
             </div>
           ) : (
             <div>
-              <span className="font-medium">AI (Gemini):</span> selected images are sent to Gemini (or your configured
-              backend proxy) for extraction. Switch to On-device OCR for maximum privacy.
+              <span className="font-medium">AI ({providerLabels[aiProvider]}):</span> selected images are sent to your
+              configured AI provider for extraction. (Included backend proxy currently supports Gemini.) Switch to On-device OCR for maximum privacy.
             </div>
           )}
         </div>
@@ -50,4 +58,3 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({ mode, onOpenSettin
     </div>
   );
 };
-

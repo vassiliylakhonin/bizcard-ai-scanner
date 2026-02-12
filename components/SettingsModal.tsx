@@ -1,14 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { Shield, X } from "lucide-react";
 import {
+  AIProvider,
   clearAllLocalSettings,
-  clearStoredGeminiApiKey,
-  getStoredGeminiApiKey,
+  clearStoredAIApiKey,
+  getDefaultBaseUrl,
+  getDefaultModel,
+  getStoredAIBaseUrl,
+  getStoredAIApiKey,
+  getStoredAIModel,
+  getStoredAIProvider,
   getStoredOcrLangs,
   getStoredProcessingMode,
   OcrLangs,
   ProcessingMode,
-  setStoredGeminiApiKey,
+  setStoredAIBaseUrl,
+  setStoredAIApiKey,
+  setStoredAIModel,
+  setStoredAIProvider,
   setStoredOcrLangs,
   setStoredProcessingMode,
 } from "../utils/settings";
@@ -21,6 +30,9 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSaved }) => {
   const [apiKey, setApiKey] = useState("");
+  const [provider, setProvider] = useState<AIProvider>("gemini");
+  const [model, setModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   const [mode, setMode] = useState<ProcessingMode>("ai");
   const [ocrLangs, setOcrLangs] = useState<OcrLangs>("eng");
   const [saved, setSaved] = useState(false);
@@ -28,7 +40,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   useEffect(() => {
     if (!isOpen) return;
     try {
-      setApiKey(getStoredGeminiApiKey());
+      const p = getStoredAIProvider();
+      setProvider(p);
+      setApiKey(getStoredAIApiKey());
+      setModel(getStoredAIModel(p));
+      setBaseUrl(getStoredAIBaseUrl(p));
       setMode(getStoredProcessingMode());
       setOcrLangs(getStoredOcrLangs());
       setSaved(false);
@@ -42,13 +58,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const save = () => {
     setStoredProcessingMode(mode);
     setStoredOcrLangs(ocrLangs);
-    setStoredGeminiApiKey(apiKey);
+    setStoredAIProvider(provider);
+    setStoredAIApiKey(apiKey);
+    setStoredAIModel(model);
+    setStoredAIBaseUrl(baseUrl);
     setSaved(true);
     onSaved?.();
   };
 
   const clear = () => {
-    clearStoredGeminiApiKey();
+    clearStoredAIApiKey();
     setApiKey("");
     setSaved(true);
     onSaved?.();
@@ -57,6 +76,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const clearAll = () => {
     clearAllLocalSettings();
     setApiKey("");
+    setProvider("gemini");
+    setModel(getDefaultModel("gemini"));
+    setBaseUrl(getDefaultBaseUrl("gemini"));
     setMode("ai");
     setOcrLangs("eng");
     setSaved(true);
@@ -108,9 +130,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                   className="mt-1"
                 />
                 <span>
-                  <span className="font-medium">AI (Gemini)</span>
+                  <span className="font-medium">AI (configurable provider)</span>
                   <span className="block text-xs text-slate-500">
-                    Selected images are sent to Gemini (or your configured backend proxy) for structured extraction.
+                    Selected images are sent to your chosen provider for structured extraction. (Included backend proxy currently supports Gemini.)
                   </span>
                 </span>
               </label>
@@ -162,7 +184,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
 
             {mode === "ai" && (
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700">Gemini API Key (optional)</label>
+                <label className="block text-sm font-medium text-slate-700">AI Provider</label>
+                <select
+                  value={provider}
+                  onChange={(e) => {
+                    const next = e.target.value as AIProvider;
+                    setProvider(next);
+                    setModel(getDefaultModel(next));
+                    setBaseUrl(getDefaultBaseUrl(next));
+                    setStoredAIProvider(next);
+                    setStoredAIModel(getDefaultModel(next));
+                    setStoredAIBaseUrl(getDefaultBaseUrl(next));
+                    setSaved(true);
+                    onSaved?.();
+                  }}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                >
+                  <option value="gemini">Gemini</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openai_compatible">OpenAI-compatible</option>
+                </select>
+
+                <label className="block text-sm font-medium text-slate-700">Model</label>
+                <input
+                  type="text"
+                  value={model}
+                  onChange={(e) => {
+                    setModel(e.target.value);
+                    setSaved(false);
+                  }}
+                  placeholder={getDefaultModel(provider)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                  autoComplete="off"
+                />
+
+                {(provider === "openai" || provider === "anthropic" || provider === "openai_compatible") && (
+                  <>
+                    <label className="block text-sm font-medium text-slate-700">
+                      {provider === "openai_compatible" ? "Base URL (required)" : "Base URL (optional)"}
+                    </label>
+                    <input
+                      type="text"
+                      value={baseUrl}
+                      onChange={(e) => {
+                        setBaseUrl(e.target.value);
+                        setSaved(false);
+                      }}
+                      placeholder={getDefaultBaseUrl(provider) || "https://api.example.com/v1"}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                      autoComplete="off"
+                    />
+                  </>
+                )}
+
+                <label className="block text-sm font-medium text-slate-700">API Key</label>
                 <input
                   type="password"
                   value={apiKey}
@@ -170,13 +246,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                     setApiKey(e.target.value);
                     setSaved(false);
                   }}
-                  placeholder="AIza..."
+                  placeholder={provider === "gemini" ? "AIza..." : "sk-..."}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
                   autoComplete="off"
                 />
                 <div className="text-xs text-slate-500">
-                  Stored in your browser localStorage. This overrides <code className="font-mono">VITE_GEMINI_API_KEY</code>{" "}
-                  for this browser only.
+                  Stored in your browser localStorage for this device only. You can also provide env vars for each provider.
                 </div>
               </div>
             )}

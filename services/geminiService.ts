@@ -1,7 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { BusinessCard } from "../types";
 import {
-  getStoredGeminiApiKey,
+  AIProvider,
+  getStoredAIBaseUrl,
+  getStoredAIApiKey,
+  getStoredAIModel,
+  getStoredAIProvider,
   getStoredOcrLangs,
   getStoredProcessingMode,
   OcrLangs,
@@ -18,30 +22,274 @@ const CARD_SCHEMA = {
     email: { type: Type.STRING, description: "Email address" },
     phone: { type: Type.STRING, description: "Phone number" },
     website: { type: Type.STRING, description: "Website URL" },
-    address: { type: Type.STRING, description: "Physical address" }
+    address: { type: Type.STRING, description: "Physical address" },
   },
   required: ["name", "company"],
 };
+
+const SYSTEM_PROMPT =
+  "You are an expert OCR assistant specialized in digitizing business cards. Output only JSON and keep unknown fields as empty strings.";
+
+const EXTRACTION_PROMPT =
+  "Analyze this business card image and extract contact details into JSON with keys: name, title, company, email, phone, website, address. Be precise with Cyrillic and Latin characters. If a field is missing, use an empty string.";
 
 type ExtractOptions = {
   mode?: ProcessingMode;
   ocrLangs?: OcrLangs;
 };
 
+type ProviderConfig = {
+  provider: AIProvider;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+};
+
+function envForProvider(provider: AIProvider) {
+  if (provider === "gemini") {
+    return {
+      apiKey: (import.meta.env.VITE_GEMINI_API_KEY || "").trim(),
+      model: (import.meta.env.VITE_GEMINI_MODEL || "").trim(),
+      baseUrl: "",
+    };
+  }
+
+  if (provider === "openai") {
+    return {
+      apiKey: (import.meta.env.VITE_OPENAI_API_KEY || "").trim(),
+      model: (import.meta.env.VITE_OPENAI_MODEL || "").trim(),
+      baseUrl: (import.meta.env.VITE_OPENAI_BASE_URL || "https://api.openai.com/v1").trim(),
+    };
+  }
+
+  if (provider === "anthropic") {
+    return {
+      apiKey: (import.meta.env.VITE_ANTHROPIC_API_KEY || "").trim(),
+      model: (import.meta.env.VITE_ANTHROPIC_MODEL || "").trim(),
+      baseUrl: (import.meta.env.VITE_ANTHROPIC_BASE_URL || "https://api.anthropic.com").trim(),
+    };
+  }
+
+  return {
+    apiKey: ((import.meta.env.VITE_OPENAI_COMPAT_API_KEY || "").trim() || (import.meta.env.VITE_OPENAI_API_KEY || "").trim()),
+    model: (import.meta.env.VITE_OPENAI_COMPAT_MODEL || "").trim(),
+    baseUrl: (import.meta.env.VITE_OPENAI_COMPAT_BASE_URL || "").trim(),
+  };
+}
+
+function getProviderConfig(): ProviderConfig {
+  const provider = getStoredAIProvider();
+  const env = envForProvider(provider);
+
+  const storedKey = getStoredAIApiKey();
+  const storedModel = getStoredAIModel(provider);
+  const storedBaseUrl = getStoredAIBaseUrl(provider);
+
+  return {
+    provider,
+    apiKey: storedKey || env.apiKey,
+    model: storedModel || env.model,
+    baseUrl: (storedBaseUrl || env.baseUrl || "").replace(/\/$/, ""),
+  };
+}
+
+function providerLabel(provider: AIProvider): string {
+  if (provider === "openai") return "OpenAI";
+  if (provider === "anthropic") return "Anthropic";
+  if (provider === "openai_compatible") return "OpenAI-compatible";
+  return "Gemini";
+}
+
+function parseJsonObject(text: string): Record<string, unknown> {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("AI returned an empty response.");
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1]?.trim() || trimmed;
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const first = candidate.indexOf("{");
+    const last = candidate.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      return JSON.parse(candidate.slice(first, last + 1));
+    }
+    throw new Error("AI response was not valid JSON.");
+  }
+}
+
+function toBusinessCard(data: Record<string, unknown>): BusinessCard {
+  const get = (key: string) => String(data[key] || "").trim();
+  return {
+    id: crypto.randomUUID(),
+    name: get("name"),
+    title: get("title"),
+    company: get("company"),
+    email: get("email"),
+    phone: get("phone"),
+    website: get("website"),
+    address: get("address"),
+  };
+}
+
+async function extractViaGemini(cleanBase64: string, config: ProviderConfig): Promise<BusinessCard> {
+  const ai = new GoogleGenAI({ apiKey: config.apiKey });
+  const response = await ai.models.generateContent({
+    model: config.model,
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: cleanBase64,
+          },
+        },
+        {
+          text: EXTRACTION_PROMPT,
+        },
+      ],
+    },
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: CARD_SCHEMA,
+      systemInstruction: SYSTEM_PROMPT,
+    },
+  });
+
+  const text = response.text;
+  if (!text) throw new Error("No response from Gemini.");
+  return toBusinessCard(parseJsonObject(text));
+}
+
+async function extractViaOpenAICompatible(base64Image: string, config: ProviderConfig): Promise<BusinessCard> {
+  if (!config.baseUrl) {
+    throw new Error("Missing base URL for OpenAI-compatible provider.");
+  }
+
+  const endpoint = `${config.baseUrl}/chat/completions`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: `${EXTRACTION_PROMPT} Return only JSON.` },
+            {
+              type: "image_url",
+              image_url: { url: base64Image },
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      payload?.error?.message || payload?.error || `Provider error (${response.status})`,
+    );
+  }
+
+  const content = payload?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("Provider returned no content.");
+
+  const text = typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.map((block) => block?.text || "").join("\n")
+      : "";
+
+  return toBusinessCard(parseJsonObject(text));
+}
+
+async function extractViaAnthropic(cleanBase64: string, config: ProviderConfig): Promise<BusinessCard> {
+  if (!config.baseUrl) {
+    throw new Error("Missing Anthropic base URL.");
+  }
+
+  const endpoint = `${config.baseUrl}/v1/messages`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": config.apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: 400,
+      temperature: 0,
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/jpeg",
+                data: cleanBase64,
+              },
+            },
+            {
+              type: "text",
+              text: `${EXTRACTION_PROMPT} Return only JSON.`,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      payload?.error?.message || payload?.error?.type || payload?.error || `Anthropic error (${response.status})`,
+    );
+  }
+
+  const blocks = Array.isArray(payload?.content) ? payload.content : [];
+  const text = blocks
+    .filter((b) => b?.type === "text")
+    .map((b) => String(b?.text || ""))
+    .join("\n")
+    .trim();
+
+  if (!text) throw new Error("Anthropic returned no text content.");
+  return toBusinessCard(parseJsonObject(text));
+}
+
 export const getExtractionPreflightError = (modeArg?: ProcessingMode): string | null => {
   const mode = modeArg || getStoredProcessingMode();
   if (mode === "on_device_ocr") return null;
 
+  const config = getProviderConfig();
   const useBackend = (import.meta.env.VITE_USE_BACKEND || "").toLowerCase() === "true";
   const backendUrl = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
-  if (useBackend || backendUrl) return null;
+  const backendEnabled = config.provider === "gemini" && (useBackend || backendUrl);
+  if (backendEnabled) return null;
 
-  const apiKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
-  const storedKey = getStoredGeminiApiKey();
-  const finalKey = storedKey || apiKey;
-  if (!finalKey) {
-    return "Missing Gemini API key. Set VITE_GEMINI_API_KEY in .env.local, enable the backend proxy, or paste a key in Settings.";
+  if (!config.apiKey) {
+    return `Missing ${providerLabel(config.provider)} API key. Add it in Settings or configure env vars.`;
   }
+
+  if (config.provider === "openai_compatible" && !config.baseUrl) {
+    return "Missing base URL for OpenAI-compatible provider. Set it in Settings (example: https://api.openai.com/v1).";
+  }
+
   return null;
 };
 
@@ -52,14 +300,15 @@ export const extractCardData = async (base64Image: string, options?: ExtractOpti
     return await extractCardDataOnDeviceOcr(base64Image, langs);
   }
 
-  // Remove header if present (e.g., "data:image/jpeg;base64,")
   const cleanBase64 = base64Image.split(",")[1] || base64Image;
+  const config = getProviderConfig();
 
   try {
     const useBackend = (import.meta.env.VITE_USE_BACKEND || "").toLowerCase() === "true";
     const backendUrl = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
+    const backendEnabled = config.provider === "gemini" && (useBackend || backendUrl);
 
-    if (useBackend || backendUrl) {
+    if (backendEnabled) {
       const endpoint = backendUrl ? `${backendUrl}/api/extract` : "/api/extract";
       const res = await fetch(endpoint, {
         method: "POST",
@@ -70,70 +319,20 @@ export const extractCardData = async (base64Image: string, options?: ExtractOpti
       if (!res.ok) {
         throw new Error(payload?.error || `Backend error (${res.status})`);
       }
-
-      return {
-        id: crypto.randomUUID(),
-        name: payload.name || "",
-        title: payload.title || "",
-        company: payload.company || "",
-        email: payload.email || "",
-        phone: payload.phone || "",
-        website: payload.website || "",
-        address: payload.address || "",
-      };
+      return toBusinessCard(payload);
     }
 
-    const apiKey = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
-    const storedKey = getStoredGeminiApiKey();
-
-    const finalKey = storedKey || apiKey;
-    if (!finalKey) {
-      throw new Error(
-        "Missing Gemini API key. Set VITE_GEMINI_API_KEY in .env.local, enable the backend proxy, or paste a key in Settings.",
-      );
+    if (config.provider === "gemini") {
+      return await extractViaGemini(cleanBase64, config);
     }
 
-    const ai = new GoogleGenAI({ apiKey: finalKey });
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: cleanBase64,
-            },
-          },
-          {
-            text: "Analyze this business card image. Extract the contact details into the specified JSON structure. Be precise with Cyrillic or Latin characters. If a field is missing, leave it as an empty string.",
-          },
-        ],
-      },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: CARD_SCHEMA,
-        systemInstruction:
-          "You are an expert OCR assistant specialized in digitizing business cards. You accurately detect languages including Russian and English.",
-      },
-    });
+    if (config.provider === "openai" || config.provider === "openai_compatible") {
+      return await extractViaOpenAICompatible(base64Image, config);
+    }
 
-    const text = response.text;
-    if (!text) throw new Error("No response from AI");
-
-    const data = JSON.parse(text);
-
-    return {
-      id: crypto.randomUUID(),
-      name: data.name || "",
-      title: data.title || "",
-      company: data.company || "",
-      email: data.email || "",
-      phone: data.phone || "",
-      website: data.website || "",
-      address: data.address || "",
-    };
+    return await extractViaAnthropic(cleanBase64, config);
   } catch (error) {
-    console.error("Gemini Extraction Error:", error);
+    console.error("AI Extraction Error:", error);
     throw error;
   }
 };

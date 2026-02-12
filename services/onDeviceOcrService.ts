@@ -1,9 +1,29 @@
 import { BusinessCard } from "../types";
 
 type WorkerLike = {
-  recognize: (image: string) => Promise<{ data: { text: string } }>;
+  recognize: (
+    image: string,
+    options?: Record<string, unknown>,
+    output?: Record<string, boolean>,
+  ) => Promise<{ data: OCRResultData }>;
   setParameters?: (params: Record<string, string>) => Promise<void>;
   terminate: () => Promise<void>;
+};
+
+type OCRWord = {
+  text?: string;
+  confidence?: number;
+  bbox?: {
+    x0?: number;
+    y0?: number;
+    x1?: number;
+    y1?: number;
+  };
+};
+
+type OCRResultData = {
+  text?: string;
+  words?: OCRWord[];
 };
 
 type CreateWorkerOptions = {
@@ -17,6 +37,26 @@ type CreateWorkerOptions = {
 };
 
 type CreateWorkerFn = (langs: string, oem?: number, options?: CreateWorkerOptions) => Promise<WorkerLike>;
+
+const TITLE_RE = new RegExp(
+  [
+    "\\b(ceo|cto|cfo|coo|founder|manager|director|head|lead|engineer|sales|marketing|product|operations|secretary|assistant|advisor|officer|president|vice president)\\b",
+    "(директор|менеджер|инженер|руководитель|продажи|маркетинг|разработчик|секретарь|советник)",
+    "(commercial affairs|economic affairs|public affairs|consular affairs)",
+  ].join("|"),
+  "i",
+);
+
+const COMPANY_RE = new RegExp(
+  [
+    "\\b(embassy|consulate|ministry|department|agency|university|institute|bank|group|solutions|studio|company|corp|corporation|inc|llc|ltd|gmbh|s\\.?a\\.?)\\b",
+    "(посольство|консульство|университет|компания|министерство)",
+  ].join("|"),
+  "i",
+);
+
+const ADDRESS_RE =
+  /\b(street|st\.|avenue|ave\.|road|rd\.|boulevard|blvd|lane|ln\.|drive|dr\.|suite|ste\.|office|building|floor|city|state|zip|postal|p\.?o\.?\s*box|box|ул\.|улица|просп|дом|офис|ashgabat|turkmenistan)\b/i;
 
 let workerPromise: Promise<WorkerLike> | null = null;
 let workerLangs: string | null = null;
@@ -247,6 +287,9 @@ function scoreParsedCard(card: Omit<BusinessCard, "id">): number {
   if (card.address) score += 20;
   if (card.name && card.name.split(/\s+/).length >= 2) score += 10;
   if (card.address.length > 20) score += 8;
+  if (card.company && card.company.length < 2) score -= 25;
+  if (card.name && /\d/.test(card.name)) score -= 30;
+  if (card.title && card.title.length < 3) score -= 10;
   return score;
 }
 
@@ -320,6 +363,160 @@ function extractTitleFromSegment(segment: string): string {
   return cleanupFieldText(s.slice(m.index));
 }
 
+type PositionedWord = {
+  text: string;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  xc: number;
+  yc: number;
+  h: number;
+};
+
+type OCRLine = {
+  words: PositionedWord[];
+  text: string;
+  xc: number;
+  yc: number;
+};
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const arr = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(arr.length / 2);
+  return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
+}
+
+function looksLikeAddressLine(line: string): boolean {
+  const l = line.trim();
+  if (!l) return false;
+  if (/@/.test(l)) return false;
+  if (ADDRESS_RE.test(l)) return true;
+  if (/\d/.test(l) && /[A-Za-zА-Яа-яЁё]/.test(l)) return true;
+  if (/^[\p{L} .'-]+,\s*[\p{L} .'-]+$/u.test(l)) return true;
+  return false;
+}
+
+function buildLinesFromWords(words: OCRWord[]): OCRLine[] {
+  const positioned: PositionedWord[] = words
+    .map((w) => {
+      const text = sanitizeOcrLine(String(w.text || ""));
+      const box = w.bbox || {};
+      const x0 = Number(box.x0);
+      const y0 = Number(box.y0);
+      const x1 = Number(box.x1);
+      const y1 = Number(box.y1);
+      if (!text) return null;
+      if (![x0, y0, x1, y1].every(Number.isFinite)) return null;
+      if (x1 <= x0 || y1 <= y0) return null;
+      if (!/[A-Za-zА-Яа-яЁё0-9@.+]/.test(text)) return null;
+      return {
+        text,
+        x0,
+        y0,
+        x1,
+        y1,
+        xc: (x0 + x1) / 2,
+        yc: (y0 + y1) / 2,
+        h: y1 - y0,
+      };
+    })
+    .filter((v): v is PositionedWord => Boolean(v))
+    .sort((a, b) => a.yc - b.yc || a.x0 - b.x0);
+
+  if (positioned.length === 0) return [];
+
+  const threshold = Math.max(8, median(positioned.map((w) => w.h)) * 0.7);
+  const lines: OCRLine[] = [];
+
+  for (const word of positioned) {
+    let bestIdx = -1;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < lines.length; i += 1) {
+      const d = Math.abs(lines[i].yc - word.yc);
+      if (d <= threshold && d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx === -1) {
+      lines.push({ words: [word], text: word.text, xc: word.xc, yc: word.yc });
+    } else {
+      const line = lines[bestIdx];
+      line.words.push(word);
+      line.yc = line.words.reduce((s, w) => s + w.yc, 0) / line.words.length;
+      line.xc = line.words.reduce((s, w) => s + w.xc, 0) / line.words.length;
+    }
+  }
+
+  for (const line of lines) {
+    line.words.sort((a, b) => a.x0 - b.x0);
+    line.text = line.words.map((w) => w.text).join(" ");
+  }
+
+  return lines.sort((a, b) => a.yc - b.yc);
+}
+
+function parseBusinessCardFromWordLayout(words: OCRWord[] | undefined, textFallback: string): Omit<BusinessCard, "id"> | null {
+  if (!words || words.length === 0) return null;
+  const lines = buildLinesFromWords(words);
+  if (lines.length === 0) return null;
+
+  const base = parseBusinessCardText(textFallback);
+  const splitX = median(lines.map((l) => l.xc));
+  const left = uniqueStrings(lines.filter((l) => l.xc < splitX - 10).map((l) => cleanSemanticLine(l.text)).filter(Boolean));
+  const right = uniqueStrings(lines.filter((l) => l.xc > splitX + 10).map((l) => cleanSemanticLine(l.text)).filter(Boolean));
+  const all = uniqueStrings(lines.map((l) => cleanSemanticLine(l.text)).filter(Boolean));
+
+  const name = extractNameCandidates(right)[0] || extractNameCandidates(all)[0] || base.name;
+
+  const title = uniqueStrings(
+    right
+      .filter((l) => TITLE_RE.test(l))
+      .map((l) => extractTitleFromSegment(l))
+      .filter(Boolean),
+  )
+    .slice(0, 3)
+    .join(", ") || base.title;
+
+  const companyCandidates: string[] = [];
+  for (let i = 0; i < left.length; i += 1) {
+    const cur = left[i];
+    const next = left[i + 1] || "";
+    if (COMPANY_RE.test(cur) && !looksLikeAddressLine(cur)) companyCandidates.push(cur);
+    if (next && COMPANY_RE.test(next) && !looksLikeAddressLine(cur) && !TITLE_RE.test(cur)) {
+      companyCandidates.push(`${cur} ${next}`);
+    }
+  }
+  const company =
+    cleanupFieldText(companyCandidates.find((c) => c.length >= 3) || "") ||
+    cleanupFieldText(base.company);
+
+  const addressCandidates = uniqueStrings(left.filter((l) => looksLikeAddressLine(l)));
+  let address = cleanupFieldText(addressCandidates.join(", ") || base.address);
+  if (company && address.toLowerCase().startsWith(company.toLowerCase())) {
+    address = cleanupFieldText(address.slice(company.length));
+  }
+
+  return {
+    ...base,
+    name: cleanupFieldText(name),
+    title: cleanupFieldText(title),
+    company,
+    address,
+  };
+}
+
+function parseBusinessCardFromOcrData(data: OCRResultData): Omit<BusinessCard, "id"> {
+  const text = String(data.text || "");
+  const textParsed = parseBusinessCardText(text);
+  const layoutParsed = parseBusinessCardFromWordLayout(data.words, text);
+  if (!layoutParsed) return textParsed;
+  return scoreParsedCard(layoutParsed) >= scoreParsedCard(textParsed) ? layoutParsed : textParsed;
+}
+
 function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
   const lines = text
     .split(/\r?\n/)
@@ -360,31 +557,11 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
     .map((l) => cleanSemanticLine(l))
     .filter(Boolean);
 
-  const titleRe = new RegExp(
-    [
-      "\\b(ceo|cto|cfo|coo|founder|manager|director|head|lead|engineer|sales|marketing|product|operations|secretary|assistant|advisor|officer|president|vice president)\\b",
-      "(директор|менеджер|инженер|руководитель|продажи|маркетинг|разработчик|секретарь|советник)",
-      "(commercial affairs|economic affairs|public affairs|consular affairs)",
-    ].join("|"),
-    "i",
-  );
-
-  const companyRe = new RegExp(
-    [
-      "\\b(embassy|consulate|ministry|department|agency|university|institute|bank|group|solutions|studio|company|corp|corporation|inc|llc|ltd|gmbh|s\\.?a\\.?)\\b",
-      "(посольство|консульство|университет|компания|министерство)",
-    ].join("|"),
-    "i",
-  );
-
-  const addressRe =
-    /\b(street|st\.|avenue|ave\.|road|rd\.|boulevard|blvd|lane|ln\.|drive|dr\.|suite|ste\.|office|building|floor|city|state|zip|postal|p\.?o\.?\s*box|box|ул\.|улица|просп|дом|офис|ashgabat|turkmenistan)\b/i;
-
   const looksLikeName = (l: string) => {
     const v = l.trim();
     if (v.length < 4 || v.length > 56) return false;
     if (/\d|@/.test(v)) return false;
-    if (titleRe.test(v) || companyRe.test(v) || addressRe.test(v)) return false;
+    if (TITLE_RE.test(v) || COMPANY_RE.test(v) || ADDRESS_RE.test(v)) return false;
 
     const tokens = v
       .split(/\s+/)
@@ -394,11 +571,11 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
     return tokens.every((t) => /^[A-ZА-ЯЁ][\p{L}'-]+$/u.test(t));
   };
 
-  const looksLikeTitle = (l: string) => titleRe.test(l);
-  const looksLikeCompany = (l: string) => companyRe.test(l);
+  const looksLikeTitle = (l: string) => TITLE_RE.test(l);
+  const looksLikeCompany = (l: string) => COMPANY_RE.test(l);
   const looksLikeAddress = (l: string) => {
     if (/@/.test(l)) return false;
-    if (addressRe.test(l)) return true;
+    if (ADDRESS_RE.test(l)) return true;
     if (/\d/.test(l) && /[A-Za-zА-Яа-яЁё]/.test(l)) return true;
     if (/^[\p{L} .'-]+,\s*[\p{L} .'-]+$/u.test(l)) return true;
     return false;
@@ -463,32 +640,41 @@ export async function extractCardDataOnDeviceOcr(
   onProgress?: (progress: number, status?: string) => void,
 ): Promise<BusinessCard> {
   const worker = await getWorker(langs, onProgress);
-  await worker.setParameters?.({
-    preserve_interword_spaces: "1",
-    user_defined_dpi: "300",
-    tessedit_pageseg_mode: "6",
-  });
+  const candidates: Array<Omit<BusinessCard, "id">> = [];
 
-  const retOriginal = await worker.recognize(base64Image);
-  const parsedOriginal = parseBusinessCardText(retOriginal.data.text || "");
+  const runPass = async (image: string, psm: string) => {
+    await worker.setParameters?.({
+      preserve_interword_spaces: "1",
+      user_defined_dpi: "300",
+      tessedit_pageseg_mode: psm,
+    });
+    const ret = await worker.recognize(
+      image,
+      {},
+      {
+        text: true,
+        words: true,
+      },
+    );
+    candidates.push(parseBusinessCardFromOcrData(ret.data));
+  };
 
-  let bestParsed = parsedOriginal;
-  let bestScore = scoreParsedCard(parsedOriginal);
+  await runPass(base64Image, "6");
 
   try {
     const enhancedImage = await preprocessImageForOcr(base64Image);
-    const retEnhanced = await worker.recognize(enhancedImage);
-    const parsedEnhanced = parseBusinessCardText(retEnhanced.data.text || "");
-    const enhancedScore = scoreParsedCard(parsedEnhanced);
-    if (enhancedScore > bestScore) {
-      bestParsed = parsedEnhanced;
-      bestScore = enhancedScore;
-    }
+    await runPass(enhancedImage, "6");
   } catch (err) {
     console.warn("OCR preprocessing pass failed, using original OCR output:", err);
   }
 
-  const parsed = bestParsed;
+  // Multi-column cards often do better with sparse text mode.
+  await runPass(base64Image, "11");
+
+  const parsed =
+    candidates.sort((a, b) => scoreParsedCard(b) - scoreParsedCard(a))[0] ||
+    parseBusinessCardText("");
+
   return {
     id: crypto.randomUUID(),
     ...parsed,

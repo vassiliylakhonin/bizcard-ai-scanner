@@ -267,8 +267,55 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+function normalizeEmailCandidate(raw: string): string {
+  let v = raw.trim();
+  v = v.replace(/\s*@\s*/g, "@");
+  v = v.replace(/\s*\.\s*/g, ".");
+  v = v.replace(/[,;]+/g, "");
+  v = v.replace(/\s+/g, "");
+  return v;
+}
+
+function normalizeWebsiteCandidate(raw: string): string {
+  let v = cleanupFieldText(raw).toLowerCase();
+  v = v.replace(/\s+/g, ".");
+  v = v.replace(/,+/g, "");
+  if (!v || v.includes("@")) return "";
+  const host = v.replace(/^https?:\/\//, "").replace(/^www\./, "");
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host.split("/")[0] || "")) return "";
+  return v;
+}
+
+function isLikelyNoiseLine(line: string): boolean {
+  const v = line.trim();
+  if (!v) return true;
+  if (v.length > 220) return true;
+  const tokens = v.split(/\s+/);
+  if (tokens.length > 35) return true;
+
+  const alpha = (v.match(/[A-Za-zА-Яа-яЁё]/g) || []).length;
+  const weird = (v.match(/[^A-Za-zА-Яа-яЁё0-9\s.,@()+\-/#:&]/g) || []).length;
+  if (alpha < 6 && weird > 6) return true;
+  if (weird > alpha * 0.6 && alpha < 25) return true;
+
+  if (
+    v.length > 120 &&
+    !/@|\+?\d/.test(v) &&
+    !/\b(embassy|consulate|director|manager|secretary|street|suite|office|phone|email|ashgabat|bishkek|turkmenistan|kg|dc)\b/i.test(v)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function cleanLikelyNoiseLines(lines: string[]): string[] {
+  return uniqueStrings(lines.map(cleanSemanticLine).filter((l) => !isLikelyNoiseLine(l)));
+}
+
 function cleanPhoneCandidate(phone: string): string {
   let v = normalizeLine(phone);
+  v = v.replace(/(?:ext\.?|extension|x)\s*\d+.*$/i, "").trim();
   // Remove dangling isolated trailing digits caused by OCR bleed.
   v = v.replace(/(?:\s+\d){1,2}$/, "").trim();
   const digits = v.replace(/[^\d]/g, "");
@@ -365,6 +412,7 @@ function extractTitleFromSegment(segment: string): string {
 
 type PositionedWord = {
   text: string;
+  conf: number;
   x0: number;
   y0: number;
   x1: number;
@@ -402,6 +450,7 @@ function buildLinesFromWords(words: OCRWord[]): OCRLine[] {
   const positioned: PositionedWord[] = words
     .map((w) => {
       const text = sanitizeOcrLine(String(w.text || ""));
+      const conf = Number(w.confidence);
       const box = w.bbox || {};
       const x0 = Number(box.x0);
       const y0 = Number(box.y0);
@@ -410,9 +459,11 @@ function buildLinesFromWords(words: OCRWord[]): OCRLine[] {
       if (!text) return null;
       if (![x0, y0, x1, y1].every(Number.isFinite)) return null;
       if (x1 <= x0 || y1 <= y0) return null;
+      if (Number.isFinite(conf) && conf < 20 && text.length <= 3) return null;
       if (!/[A-Za-zА-Яа-яЁё0-9@.+]/.test(text)) return null;
       return {
         text,
+        conf: Number.isFinite(conf) ? conf : 0,
         x0,
         y0,
         x1,
@@ -466,9 +517,9 @@ function parseBusinessCardFromWordLayout(words: OCRWord[] | undefined, textFallb
 
   const base = parseBusinessCardText(textFallback);
   const splitX = median(lines.map((l) => l.xc));
-  const left = uniqueStrings(lines.filter((l) => l.xc < splitX - 10).map((l) => cleanSemanticLine(l.text)).filter(Boolean));
-  const right = uniqueStrings(lines.filter((l) => l.xc > splitX + 10).map((l) => cleanSemanticLine(l.text)).filter(Boolean));
-  const all = uniqueStrings(lines.map((l) => cleanSemanticLine(l.text)).filter(Boolean));
+  const left = cleanLikelyNoiseLines(lines.filter((l) => l.xc < splitX - 10).map((l) => l.text));
+  const right = cleanLikelyNoiseLines(lines.filter((l) => l.xc > splitX + 10).map((l) => l.text));
+  const all = cleanLikelyNoiseLines(lines.map((l) => l.text));
 
   const name = extractNameCandidates(right)[0] || extractNameCandidates(all)[0] || base.name;
 
@@ -523,10 +574,17 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
     .map((l) => sanitizeOcrLine(l))
     .filter(Boolean);
 
-  const joined = lines.join("\n");
+  const cleanedInputLines = cleanLikelyNoiseLines(lines);
+  const joined = cleanedInputLines.join("\n");
 
   const emails = dedupeBy(
-    Array.from(joined.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)).map((m) => m[0].trim()),
+    [
+      ...Array.from(joined.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)).map((m) => normalizeEmailCandidate(m[0].trim())),
+      ...cleanedInputLines
+        .filter((l) => l.includes("@"))
+        .map((l) => normalizeEmailCandidate(l))
+        .filter(isValidEmail),
+    ],
     (v) => v.toLowerCase(),
   );
   const email = emails[0] || "";
@@ -547,15 +605,16 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
     /\b((?:www\.)?[a-z0-9-]{2,})\s+([a-z]{2,3})\b/i,
   );
   const spacedWebsiteFixed = spacedWebsite ? spacedWebsite.replace(/\s+/, ".") : "";
-  const website = websiteRaw && !websiteRaw.includes("@") ? websiteRaw : spacedWebsiteFixed;
+  const website = normalizeWebsiteCandidate(websiteRaw && !websiteRaw.includes("@") ? websiteRaw : spacedWebsiteFixed);
 
   const contactTokens = [...emails, ...cleanPhones];
   if (website) contactTokens.push(website);
 
-  const nonContactLines = lines
+  const nonContactLines = cleanedInputLines
     .map((l) => stripContactTokens(l, contactTokens))
     .map((l) => cleanSemanticLine(l))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((l) => !isLikelyNoiseLine(l));
 
   const looksLikeName = (l: string) => {
     const v = l.trim();
@@ -593,7 +652,9 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
   const splitSegments = remaining
     .flatMap((l) => l.split(/\s*,\s*/g))
     .map((s) => cleanSemanticLine(s))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((l) => !isLikelyNoiseLine(l))
+    .filter((l) => l.length <= 120);
 
   const titleLines = uniqueStrings(
     splitSegments
@@ -625,12 +686,12 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
 
   return {
     name: cleanupFieldText(name),
-    title: cleanupFieldText(title),
-    company: cleanupFieldText(company),
+    title: cleanupFieldText(title).slice(0, 120),
+    company: cleanupFieldText(company).slice(0, 100),
     email: isValidEmail(email) ? email : "",
     phone: cleanPhoneCandidate(phone),
-    website,
-    address,
+    website: normalizeWebsiteCandidate(website),
+    address: cleanupFieldText(address).slice(0, 160),
   };
 }
 

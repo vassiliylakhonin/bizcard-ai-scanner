@@ -109,6 +109,59 @@ function stripContactTokens(line: string, tokens: string[]): string {
   return sanitizeOcrLine(out).replace(/^[,;:\- ]+|[,;:\- ]+$/g, "").trim();
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean)));
+}
+
+function tokenizeWords(line: string): string[] {
+  return line
+    .split(/\s+/)
+    .map((t) => t.replace(/^[^A-Za-zА-Яа-яЁё]+|[^A-Za-zА-Яа-яЁё'-]+$/g, ""))
+    .filter(Boolean);
+}
+
+function isTitleCaseWord(token: string): boolean {
+  return /^\p{Lu}[\p{Ll}'-]{1,}$/u.test(token);
+}
+
+function isUpperWord(token: string): boolean {
+  return /^\p{Lu}{2,}$/u.test(token);
+}
+
+function extractBestNameCandidate(lines: string[], isTitleLine: (line: string) => boolean, isAddressLine: (line: string) => boolean): string {
+  const candidates: Array<{ value: string; score: number }> = [];
+
+  for (const line of lines) {
+    if (isAddressLine(line)) continue;
+    const words = tokenizeWords(line);
+    if (words.length < 2) continue;
+
+    for (let i = 0; i < words.length; i += 1) {
+      for (let len = 2; len <= 3; len += 1) {
+        const slice = words.slice(i, i + len);
+        if (slice.length < 2) continue;
+
+        const acceptable = slice.every((w) => isTitleCaseWord(w) || isUpperWord(w));
+        if (!acceptable) continue;
+
+        const value = slice.join(" ");
+        let score = 10 + slice.length * 8;
+        score += slice.filter(isTitleCaseWord).length * 3;
+        if (isTitleLine(line)) score -= 12;
+        if (/\b(embassy|consulate|ministry|department|agency|company|corp|inc|llc|ltd)\b/i.test(line)) score -= 12;
+        if (/\d|@/.test(line)) score -= 8;
+        if (value.length < 6) score -= 6;
+
+        candidates.push({ value, score });
+      }
+    }
+  }
+
+  if (candidates.length === 0) return "";
+  candidates.sort((a, b) => b.score - a.score || b.value.length - a.value.length);
+  return candidates[0].value;
+}
+
 function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
   const lines = text
     .split(/\r?\n/)
@@ -184,16 +237,35 @@ function parseBusinessCardText(text: string): Omit<BusinessCard, "id"> {
     return false;
   };
 
-  const name = nonContactLines.find(looksLikeName) || "";
+  const heuristicName = nonContactLines.find(looksLikeName) || "";
+  const extractedName = extractBestNameCandidate(nonContactLines, looksLikeTitle, looksLikeAddress);
+  const name = extractedName || heuristicName;
 
-  const remaining = nonContactLines.filter((l) => l !== name);
-  const titleLines = remaining.filter((l) => looksLikeTitle(l) && !looksLikeAddress(l));
-  const title = titleLines.slice(0, 2).join(", ");
+  const remaining = nonContactLines
+    .map((l) => (name ? stripContactTokens(l, [name]) : l))
+    .filter(Boolean);
 
-  const remaining2 = remaining.filter((l) => !titleLines.includes(l));
+  const splitSegments = remaining
+    .flatMap((l) => l.split(/\s*,\s*/g))
+    .map((s) => sanitizeOcrLine(s))
+    .filter(Boolean);
+
+  const titleLines = uniqueStrings(splitSegments.filter((l) => looksLikeTitle(l) && !looksLikeAddress(l)));
+  const title = titleLines.slice(0, 3).join(", ");
+
+  const remaining2 = uniqueStrings(
+    splitSegments.filter((l) => !titleLines.includes(l)),
+  );
+
+  const looksLikePersonishLine = (l: string) => {
+    const words = tokenizeWords(l);
+    if (words.length < 2 || words.length > 5) return false;
+    return words.filter((w) => isTitleCaseWord(w)).length >= 2;
+  };
+
   const company =
     remaining2.find((l) => looksLikeCompany(l) && !looksLikeAddress(l)) ||
-    remaining2.find((l) => l.length <= 64 && !looksLikeAddress(l)) ||
+    remaining2.find((l) => l.length <= 64 && !looksLikeAddress(l) && !looksLikeTitle(l) && !looksLikePersonishLine(l)) ||
     "";
 
   const remaining3 = remaining2.filter((l) => l !== company);
